@@ -595,6 +595,57 @@ async function startServer() {
     response.json(buildStats(db, range, cutoffHour)); // Pass cutoffHour to buildStats
   });
 
+  // Asignar una ruta a un domiciliario y persistir la sugerencia
+  app.post('/api/routes/assign', (request, response) => {
+    try {
+      const driverId = request.body.driverId ? Number(request.body.driverId) : null;
+      const orderIds = Array.isArray(request.body.orderIds) ? request.body.orderIds.map(Number).filter(Boolean) : [];
+      const route = Array.isArray(request.body.route) ? request.body.route : [];
+
+      if (!driverId || !orderIds.length) {
+        return response.status(400).json({ message: 'driverId y orderIds son requeridos para asignar una ruta.' });
+      }
+
+      const driver = db.prepare('SELECT * FROM drivers WHERE id = ?').get(driverId);
+      if (!driver) return response.status(404).json({ message: 'Domiciliario no encontrado.' });
+
+      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+      const result = db.transaction(() => {
+        // Actualizar cada pedido: asignar driver y marcar como 'en ruta'
+        orderIds.forEach((oid) => {
+          db.prepare('UPDATE orders SET driver_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(driverId, 'en ruta', oid);
+        });
+
+        // Actualizar estado del domiciliario
+        db.prepare('UPDATE drivers SET current_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run('en ruta', driverId);
+
+        // Persistir una sugerencia de ruta (referencia al primer pedido)
+        const firstOrderId = orderIds[0] || 0;
+        const distanceKm = Math.max(orderIds.length, 1) * 2.4;
+        const etaMinutes = Math.max(orderIds.length, 1) * 8;
+
+        const insert = db.prepare(`
+          INSERT INTO route_suggestions (order_id, driver_id, barrio_group, route_json, distance_km, eta_minutes)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(firstOrderId, driverId, '', JSON.stringify(route), distanceKm, etaMinutes);
+
+        return {
+          routeSuggestionId: insert.lastInsertRowid,
+          assignedOrders: orderIds,
+          driverId
+        };
+      })();
+
+      response.json({ ok: true, result });
+    } catch (error) {
+      console.error('Error asignando ruta:', error);
+      response.status(500).json({ message: 'Error interno al asignar la ruta.' });
+    }
+  });
+
   // Manejador 404 específico para API (antes del comodín de HTML)
   app.use('/api', (request, response) => {
     response.status(404).json({ message: `Ruta de API no encontrada: ${request.method} ${request.url}` });

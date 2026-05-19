@@ -1,12 +1,47 @@
 const baseUrl = window.location.origin;
 const pendingItems = [];
 let productsViewFilter = 'all';
+let routeMapInstance = null;
+let routeLayerGroup = null;
 const dashboardState = {
   products: [],
   drivers: [],
   orders: [],
+  routeSuggestion: null,
   stats: null
 };
+
+const caliNeighborhoodCenters = {
+  'san fernando': [3.4392, -76.5486],
+  tequendama: [3.4297, -76.5402],
+  granada: [3.4512, -76.5331],
+  centro: [3.4516, -76.5320],
+  sur: [3.4085, -76.5400],
+  norte: [3.4870, -76.5280],
+  oeste: [3.4590, -76.5530],
+  'belen': [3.4024, -76.5426],
+  'prados del norte': [3.4868, -76.5178]
+};
+
+function hashString(value) {
+  return String(value || '').split('').reduce((accumulator, character) => ((accumulator << 5) - accumulator) + character.charCodeAt(0), 0);
+}
+
+function getRouteCoordinate(order, index = 0) {
+  const key = String(order.barrio || order.route_zone || '').toLowerCase().trim();
+  const base = caliNeighborhoodCenters[key] || [3.4516, -76.5320];
+  const offsetSeed = hashString(`${order.address || ''}-${order.id}-${index}`);
+  const latOffset = ((offsetSeed % 7) - 3) * 0.0012;
+  const lngOffset = (((offsetSeed >> 3) % 7) - 3) * 0.0012;
+
+  return [base[0] + latOffset, base[1] + lngOffset];
+}
+
+function formatRouteTitle(value) {
+  if (value === 'all') return 'Todos los pedidos listos';
+  if (value === 'available') return 'Pedidos listos para despacho';
+  return 'Rutas activas';
+}
 
 function wireSidebarNavigation() {
   const navItems = Array.from(document.querySelectorAll('[data-target]'));
@@ -868,6 +903,7 @@ function renderOverviewInsights() {
 
 async function refreshDashboard() {
   const cutoffHour = document.querySelector('#statsForm [name="cutoffHour"]')?.value || 20;
+  const routeDriverId = document.getElementById('routeDriverSelect')?.value || '';
   
   const [products, drivers, orders, stats] = await Promise.all([
     request('/api/products'),
@@ -876,10 +912,13 @@ async function refreshDashboard() {
     request(`/api/stats?range=day&cutoffHour=${cutoffHour}`)
   ]);
 
+  const routeSuggestion = await request(`/api/routes/suggest?driverId=${encodeURIComponent(routeDriverId)}`);
+
   dashboardState.products = products;
   dashboardState.drivers = drivers;
   dashboardState.orders = orders;
   dashboardState.stats = stats;
+  dashboardState.routeSuggestion = routeSuggestion;
 
   renderProducts(products);
   renderDrivers(drivers);
@@ -899,7 +938,117 @@ async function refreshDashboard() {
   renderOverviewKpis();
   renderOverviewInsights();
   renderOrdersChart();
+  renderRoutes(routeSuggestion, drivers);
   document.getElementById('serverStatus').textContent = 'Servidor local activo';
+}
+
+function renderRoutes(routeSuggestion, drivers) {
+  const driverSelect = document.getElementById('routeDriverSelect');
+  const mapContainer = document.getElementById('routeMap');
+  const sequenceContainer = document.getElementById('routeSequence');
+  const orderCount = document.getElementById('routeOrderCount');
+  const neighborhoodCount = document.getElementById('routeNeighborhoodCount');
+  const distanceNode = document.getElementById('routeDistance');
+  const etaNode = document.getElementById('routeEta');
+
+  const activeDrivers = drivers.filter((driver) => Number(driver.active) === 1);
+
+  if (driverSelect) {
+    const currentValue = driverSelect.value;
+    driverSelect.innerHTML = `
+      <option value="">Todos los domiciliarios activos</option>
+      ${activeDrivers.map((driver) => `<option value="${driver.id}">${escapeHtml(driver.name)} · ${escapeHtml(driver.zone || 'Sin zona')}</option>`).join('')}
+    `;
+    if (currentValue) {
+      driverSelect.value = currentValue;
+    }
+  }
+
+  const sequence = Array.isArray(routeSuggestion?.sequence) ? routeSuggestion.sequence : [];
+  const grouped = routeSuggestion?.grouped || {};
+  const groupedEntries = Object.entries(grouped);
+
+  if (orderCount) {
+    orderCount.textContent = String(sequence.length);
+  }
+
+  if (neighborhoodCount) {
+    neighborhoodCount.textContent = String(groupedEntries.length);
+  }
+
+  if (distanceNode) {
+    const estimatedDistance = Math.max(sequence.length * 1.8, groupedEntries.length * 2.4, sequence.length ? 2 : 0);
+    distanceNode.textContent = `${estimatedDistance.toFixed(1)} km`;
+  }
+
+  if (etaNode) {
+    const estimatedMinutes = Math.max(sequence.length * 8 + groupedEntries.length * 6, 0);
+    etaNode.textContent = `${estimatedMinutes} min`;
+  }
+
+  if (sequenceContainer) {
+    sequenceContainer.innerHTML = sequence.length
+      ? sequence.map((order, index) => `
+        <article class="route-stop">
+          <div class="route-stop-index">${index + 1}</div>
+          <div class="route-stop-body">
+            <strong>${escapeHtml(order.client_name || `Pedido #${order.id}`)}</strong>
+            <p>${escapeHtml(order.barrio || 'Sin barrio')} · ${escapeHtml(order.address || 'Sin dirección')}</p>
+          </div>
+          <span class="route-stop-tag">${escapeHtml(order.barrio || 'Sin barrio')}</span>
+        </article>
+      `).join('')
+      : '<div class="product-group-empty">No hay pedidos listos para enrutar.</div>';
+  }
+
+  if (!mapContainer || typeof window.L === 'undefined') {
+    return;
+  }
+
+  if (!routeMapInstance) {
+    routeMapInstance = window.L.map('routeMap', { zoomControl: true }).setView([3.4516, -76.5320], 12);
+    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(routeMapInstance);
+    routeLayerGroup = window.L.layerGroup().addTo(routeMapInstance);
+  }
+
+  routeLayerGroup.clearLayers();
+
+  if (!sequence.length) {
+    window.L.marker([3.4516, -76.5320]).addTo(routeLayerGroup).bindPopup('Shadday Wok · Cali');
+    routeMapInstance.setView([3.4516, -76.5320], 12);
+    return;
+  }
+
+  const routePoints = sequence.map((order, index) => ({
+    order,
+    coordinates: getRouteCoordinate(order, index)
+  }));
+
+  const polylinePoints = routePoints.map((point) => point.coordinates);
+
+  routePoints.forEach((point, index) => {
+    window.L.circleMarker(point.coordinates, {
+      radius: 10,
+      color: index === 0 ? '#f59e0b' : '#60a5fa',
+      fillColor: index === 0 ? '#f97316' : '#3b82f6',
+      fillOpacity: 0.9,
+      weight: 2
+    }).addTo(routeLayerGroup).bindPopup(`
+      <strong>${escapeHtml(point.order.client_name || `Pedido #${point.order.id}`)}</strong><br />
+      ${escapeHtml(point.order.barrio || 'Sin barrio')}<br />
+      ${escapeHtml(point.order.address || 'Sin dirección')}
+    `);
+  });
+
+  window.L.polyline(polylinePoints, {
+    color: '#f59e0b',
+    weight: 4,
+    opacity: 0.8
+  }).addTo(routeLayerGroup);
+
+  routeMapInstance.fitBounds(polylinePoints, { padding: [30, 30] });
 }
 
 function getFormData(form) {
@@ -1464,6 +1613,50 @@ async function main() {
   document.getElementById('openDriverModal').addEventListener('click', () => {
     openDriverModal();
   });
+
+  document.getElementById('routeDriverSelect').addEventListener('change', async () => {
+    await refreshDashboard();
+  });
+
+  document.getElementById('routeRefreshBtn').addEventListener('click', async () => {
+    await refreshDashboard();
+  });
+
+  // Handler para asignar la ruta sugerida al domiciliario seleccionado
+  const assignBtn = document.getElementById('assignRouteBtn');
+  if (assignBtn) {
+    assignBtn.addEventListener('click', async () => {
+      const driverSelect = document.getElementById('routeDriverSelect');
+      const driverId = driverSelect ? Number(driverSelect.value) : null;
+      const sequence = Array.isArray(dashboardState.routeSuggestion?.sequence) ? dashboardState.routeSuggestion.sequence : [];
+
+      if (!driverId) {
+        showToast('Selecciona un domiciliario antes de asignar la ruta.', 'error');
+        return;
+      }
+
+      if (!sequence.length) {
+        showToast('No hay pedidos disponibles para asignar.', 'error');
+        return;
+      }
+
+      assignBtn.disabled = true;
+      try {
+        const orderIds = sequence.map(o => o.id).filter(Boolean);
+        await request('/api/routes/assign', {
+          method: 'POST',
+          body: JSON.stringify({ driverId, orderIds, route: sequence })
+        });
+        showToast('Ruta asignada correctamente.', 'success');
+        await refreshDashboard();
+      } catch (err) {
+        console.error('Error asignando ruta:', err);
+        showToast(err.message || 'Error al asignar la ruta.', 'error');
+      } finally {
+        assignBtn.disabled = false;
+      }
+    });
+  }
 
   document.getElementById('driversList').addEventListener('click', async (event) => {
     const driverId = event.target.dataset.driverToggle;

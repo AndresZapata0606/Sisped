@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Shadday Wok</title>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   </head>
   <body>
     <div class="app-shell">
@@ -23,6 +25,7 @@
           <button type="button" class="nav-item" data-target="clients">Clientes</button>
           <button type="button" class="nav-item" data-target="catalog">Productos</button>
           <button type="button" class="nav-item" data-target="drivers">Domiciliarios</button>
+          <button type="button" class="nav-item" data-target="routes">Rutas</button>
           <button type="button" class="nav-item" data-target="analytics">Estadisticas</button>
         </nav>
 
@@ -250,6 +253,56 @@
               </div>
               <button id="openDriverModal" class="btn-primary" style="width: 100%;">+ Nuevo Domiciliario</button>
               <div id="driversList" class="mini-list"></div>
+            </section>
+          </section>
+
+          <section class="view-panel" id="routesView" data-view="routes">
+            <div class="view-header">
+              <div>
+                <p class="eyebrow">Rutas</p>
+                <h2>Mapa y despacho geolocalizado</h2>
+              </div>
+              <p class="subtle">Pedidos listos, domiciliario activo y secuencia sugerida por barrio.</p>
+            </div>
+
+            <section class="panel route-panel">
+              <div class="panel-header">
+                <h2>Planificación de ruta</h2>
+                <span>Cali, Colombia</span>
+              </div>
+
+              <div class="route-controls">
+                <select id="routeDriverSelect"></select>
+                <button type="button" id="routeRefreshBtn">Actualizar mapa</button>
+                <button type="button" id="assignRouteBtn" class="primary">Asignar ruta</button>
+              </div>
+
+              <div class="route-summary-grid">
+                <article class="route-summary-card">
+                  <span>Pedidos en ruta</span>
+                  <strong id="routeOrderCount">0</strong>
+                </article>
+                <article class="route-summary-card accent">
+                  <span>Barrios agrupados</span>
+                  <strong id="routeNeighborhoodCount">0</strong>
+                </article>
+                <article class="route-summary-card">
+                  <span>Distancia estimada</span>
+                  <strong id="routeDistance">0 km</strong>
+                </article>
+                <article class="route-summary-card">
+                  <span>Tiempo estimado</span>
+                  <strong id="routeEta">0 min</strong>
+                </article>
+              </div>
+
+              <div class="route-layout">
+                <div id="routeMap" class="route-map"></div>
+                <div class="route-sequence-card">
+                  <div class="section-title">Secuencia sugerida</div>
+                  <div id="routeSequence" class="route-sequence"></div>
+                </div>
+              </div>
             </section>
           </section>
 
