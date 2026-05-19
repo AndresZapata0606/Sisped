@@ -1,1 +1,0 @@
-Proyecto iniciado. Ejecutar npm install y luego npm start cuando esten disponibles las dependencias.
