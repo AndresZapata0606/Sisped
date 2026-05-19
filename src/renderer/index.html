@@ -110,7 +110,7 @@
               <article class="insight-card">
                 <div class="insight-head">
                   <span>Cliente frecuente</span>
-                  <span class="insight-chip">Top cliente</span>
+                  <span class="insight-chip success">Top cliente</span>
                 </div>
                 <strong id="topClientName">Sin datos</strong>
                 <p id="topClientMeta">Todavía no hay suficiente historial para calcularlo.</p>
@@ -128,7 +128,6 @@
                 <p id="topProductMeta">El producto con más ventas en el rango.</p>
                 <div class="insight-foot">
                   <span id="topProductCount">0 unidades</span>
-                </div>
                 </div>
               </article>
               <article class="insight-card highlight">
@@ -154,24 +153,6 @@
                   <span id="topStatusCount">0 pedidos</span>
                   <span id="topStatusHint">Lectura rápida del día</span>
                 </div>
-              </article>
-            </section>
-
-            <section class="overview-grid">
-              <article class="panel chart-panel">
-                <div class="panel-header">
-                  <h2>Flujo de pedidos</h2>
-                  <span>conteo por estado</span>
-                </div>
-                <div id="ordersChart" class="orders-chart"></div>
-              </article>
-
-              <article class="panel">
-                <div class="panel-header">
-                  <h2>Actividad reciente</h2>
-                  <span>últimos movimientos</span>
-                </div>
-                <div id="ordersList" class="orders-list"></div>
               </article>
             </section>
           </section>
@@ -220,6 +201,24 @@
                   <div id="orderMessage" class="message"></div>
                 </div>
               </form>
+            </section>
+
+            <section class="overview-grid">
+              <article class="panel chart-panel">
+                <div class="panel-header">
+                  <h2>Flujo de pedidos</h2>
+                  <span>conteo por estado</span>
+                </div>
+                <div id="ordersChart" class="orders-chart"></div>
+              </article>
+
+              <article class="panel">
+                <div class="panel-header">
+                  <h2>Actividad reciente</h2>
+                  <span>últimos movimientos</span>
+                </div>
+                <div id="ordersList" class="orders-list"></div>
+              </article>
             </section>
           </section>
 
@@ -321,6 +320,20 @@
           </section>
         </div>
       </main>
+    </div>
+
+    <!-- Contenedor para Toasts -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Estructura de Modal Genérico -->
+    <div id="modalOverlay" class="modal-overlay">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 id="modalTitle">Confirmación</h3>
+        </div>
+        <div class="modal-body" id="modalBody"></div>
+        <div class="modal-footer" id="modalFooter"></div>
+      </div>
     </div>
 
     <script src="/app.js"></script>

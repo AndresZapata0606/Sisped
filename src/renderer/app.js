@@ -68,6 +68,71 @@ async function request(path, options = {}) {
   return response.json();
 }
 
+// --- Utilidades de UI (Modales y Toasts) ---
+
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toastContainer');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  
+  const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+  toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(20px)';
+    toast.style.transition = 'all 0.3s ease';
+    setTimeout(() => toast.remove(), 300);
+  }, 4000);
+}
+
+function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancelar', onConfirm, onCancel }) {
+  const overlay = document.getElementById('modalOverlay');
+  const titleEl = document.getElementById('modalTitle');
+  const bodyEl = document.getElementById('modalBody');
+  const footerEl = document.getElementById('modalFooter');
+
+  titleEl.textContent = title;
+  bodyEl.innerHTML = body;
+  footerEl.innerHTML = '';
+
+  if (cancelText) {
+    const btnCancel = document.createElement('button');
+    btnCancel.className = 'btn-secondary';
+    btnCancel.textContent = cancelText;
+    btnCancel.onclick = () => {
+      overlay.classList.remove('active');
+      if (onCancel) onCancel();
+    };
+    footerEl.appendChild(btnCancel);
+  }
+
+  const btnConfirm = document.createElement('button');
+  btnConfirm.className = 'primary';
+  btnConfirm.textContent = confirmText;
+  btnConfirm.onclick = () => {
+    overlay.classList.remove('active');
+    if (onConfirm) onConfirm();
+  };
+  footerEl.appendChild(btnConfirm);
+
+  overlay.classList.add('active');
+}
+
+function syncOrderMessage(message, isError = false) {
+  // Redirigimos esto a Toasts para mayor visibilidad
+  showToast(message, isError ? 'error' : 'success');
+  
+  // Mantenemos el mensaje en el form por si acaso
+  const element = document.getElementById('orderMessage');
+  if (element) {
+    element.textContent = message;
+    element.style.color = isError ? '#fecaca' : '#bfdbfe';
+  }
+}
+
 function renderClientResults(clients) {
   const container = document.getElementById('clientResults');
 
@@ -244,7 +309,6 @@ function renderStats(stats) {
     <div class="stat"><strong>${stats.deliveredOrders}</strong><span>Pedidos entregados</span></div>
     <div class="stat"><strong>${stats.cancelledOrders}</strong><span>Pedidos cancelados</span></div>
     <div class="stat"><strong>${money(stats.totalSales)}</strong><span>Ventas totales</span></div>
-    <div class="stat"><strong>${stats.averageDeliveryTimeMinutes.toFixed(0)} min</strong><span>Tiempo promedio entrega</span></div>
     <div class="stat"><strong>${(stats.averageDeliveryTimeMinutes || 0).toFixed(0)} min</strong><span>Tiempo promedio entrega</span></div>
     <div class="stat"><strong>${money(stats.averageTicket)}</strong><span>Ticket promedio</span></div>
     <div class="stat"><strong>${stats.topProduct}</strong><span>Producto mas vendido</span></div>
@@ -265,7 +329,6 @@ function renderOverviewKpis() {
   document.getElementById('kpiDeliveredOrders').textContent = stats ? String(stats.deliveredOrders) : '0';
   document.getElementById('kpiCancelledOrders').textContent = stats ? String(stats.cancelledOrders) : '0';
   document.getElementById('kpiAverageTicket').textContent = stats ? money(stats.averageTicket) : money(0);
-  document.getElementById('kpiAverageDeliveryTime').textContent = stats ? `${stats.averageDeliveryTimeMinutes.toFixed(0)} min` : '0 min';
   document.getElementById('kpiAverageDeliveryTime').textContent = stats ? `${(stats.averageDeliveryTimeMinutes || 0).toFixed(0)} min` : '0 min';
   document.getElementById('overviewStatusText').textContent = `${orders.length} pedidos cargados`;
 }
@@ -434,25 +497,33 @@ async function main() {
         if (existing) {
           // Regla: Confirmación manual si el nombre ingresado difiere del registrado
           if (currentNameInput && currentNameInput.toLowerCase() !== existing.name.toLowerCase()) {
-            const confirmed = confirm(`El teléfono ${phone} está registrado a nombre de "${existing.name}". ¿Deseas usar los datos de este cliente?`);
-            if (!confirmed) return;
+            showModal({
+              title: 'Cliente detectado',
+              body: `El teléfono <strong>${phone}</strong> ya está registrado a nombre de <strong>${existing.name}</strong>.<br><br>¿Deseas cargar sus datos guardados?`,
+              confirmText: 'Sí, usar datos',
+              cancelText: 'No, es otro cliente',
+              onConfirm: () => fillOrderClientData(existing)
+            });
+            return;
           }
-
-          const form = document.getElementById('orderForm');
-          nameInput.value = existing.name;
-          
-          if (existing.primaryAddress) {
-            form.querySelector('[name="address"]').value = existing.primaryAddress.address;
-            form.querySelector('[name="barrio"]').value = existing.primaryAddress.barrio;
-            form.querySelector('[name="reference"]').value = existing.primaryAddress.reference;
-          }
-          syncOrderMessage(`Cliente frecuente detectado: ${existing.name}`);
+          fillOrderClientData(existing);
         }
       } catch (e) {
         console.error('Error al buscar cliente para auto-completado', e);
       }
     }
   });
+
+  function fillOrderClientData(client) {
+    const form = document.getElementById('orderForm');
+    form.querySelector('[name="name"]').value = client.name;
+    if (client.primaryAddress) {
+      form.querySelector('[name="address"]').value = client.primaryAddress.address;
+      form.querySelector('[name="barrio"]').value = client.primaryAddress.barrio;
+      form.querySelector('[name="reference"]').value = client.primaryAddress.reference;
+    }
+    showToast(`Datos de ${client.name} cargados`, 'info');
+  }
 
   document.getElementById('clientSearchForm').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -540,6 +611,10 @@ async function main() {
     if (driverId === undefined) {
       return;
     }
+    
+    const isActivating = event.target.dataset.active === '1';
+    showToast(`Domiciliario ${isActivating ? 'activado' : 'desactivado'}`, 'info');
+
     await request(`/api/drivers/${driverId}/active`, {
       method: 'PATCH',
       body: JSON.stringify({ active: event.target.dataset.active === '1' })
@@ -574,7 +649,7 @@ async function main() {
 
       pendingItems.length = 0;
       event.currentTarget.reset();
-      syncOrderMessage(`Comanda creada con exito (#${result.order.id}).`);
+      syncOrderMessage(`Comanda #${result.order.id} creada con éxito.`);
       await refreshDashboard();
     } catch (error) {
       syncOrderMessage(error.message, true);
@@ -599,10 +674,11 @@ async function main() {
           method: 'PATCH',
           body: JSON.stringify({ status: newStatus })
         });
+        showToast(`Pedido #${orderId} actualizado a "${newStatus}"`, 'success');
         await refreshDashboard(); // Refresh to show updated status and stats
       } catch (error) {
         console.error('Error al actualizar estado del pedido:', error);
-        alert('Error al actualizar estado del pedido: ' + error.message); // Simple alert for now
+        showToast('Error: ' + error.message, 'error');
       }
     }
   });
