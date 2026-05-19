@@ -51,7 +51,6 @@ async function createSqlDatabase() {
     const changes = database.getRowsModified();
     const lastIdRow = database.exec('SELECT last_insert_rowid() AS id;');
     statement.free();
-    persist();
     return {
       changes,
       lastInsertRowid: lastIdRow.length ? lastIdRow[0].values[0][0] : 0
@@ -61,8 +60,10 @@ async function createSqlDatabase() {
   const db = {
     exec(sql) {
       const result = database.exec(sql);
-      persist();
       return result;
+    },
+    save() {
+      persist();
     },
     prepare(sql) {
       return {
@@ -90,20 +91,20 @@ async function createSqlDatabase() {
     },
     transaction(callback) {
       return (...args) => {
-        database.exec('BEGIN TRANSACTION;');
         try {
+          database.exec('BEGIN TRANSACTION;');
           const result = callback(...args);
           database.exec('COMMIT;');
-          persist();
+          db.save();
           return result;
         } catch (error) {
-          database.exec('ROLLBACK;');
+          try { database.exec('ROLLBACK;'); } catch (e) { /* Transacción ya cerrada */ }
           throw error;
         }
       };
     },
     close() {
-      persist();
+      db.save();
       database.close();
     }
   };
@@ -203,39 +204,41 @@ async function createSqlDatabase() {
 
   const productCount = db.prepare('SELECT COUNT(*) AS total FROM products').get();
   if ((productCount && Number(productCount.total)) === 0) {
-    const insertClient = db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)');
-    const insertAddress = db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary) VALUES (?, ?, ?, ?, ?, ?)');
-    const insertProduct = db.prepare('INSERT INTO products (name, category, price, combo_items, active) VALUES (?, ?, ?, ?, ?)');
-    const insertDriver = db.prepare('INSERT INTO drivers (name, phone, vehicle, zone, active, current_status) VALUES (?, ?, ?, ?, ?, ?)');
-    const insertOrder = db.prepare('INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    const insertItem = db.prepare('INSERT INTO order_items (order_id, product_id, name_snapshot, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)');
+    db.transaction(() => { // Wrap demo data insertion in a transaction
+      const insertClient = db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)');
+      const insertAddress = db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertProduct = db.prepare('INSERT INTO products (name, category, price, combo_items, active) VALUES (?, ?, ?, ?, ?)');
+      const insertDriver = db.prepare('INSERT INTO drivers (name, phone, vehicle, zone, active, current_status) VALUES (?, ?, ?, ?, ?, ?)');
+      const insertOrder = db.prepare('INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      const insertItem = db.prepare('INSERT INTO order_items (order_id, product_id, name_snapshot, quantity, unit_price, line_total) VALUES (?, ?, ?, ?, ?, ?)');
 
-    const clientOne = insertClient.run('Andres Lopez', '3001112233', 'Cliente frecuente').lastInsertRowid;
-    const clientTwo = insertClient.run('Maria Perez', '3012223344', 'Pide sin cebolla').lastInsertRowid;
-    const clientThree = insertClient.run('Juan Rojas', '3023334455', 'Pago por transferencia').lastInsertRowid;
+      const clientOne = insertClient.run('Andres Lopez', '3001112233', 'Cliente frecuente').lastInsertRowid;
+      const clientTwo = insertClient.run('Maria Perez', '3012223344', 'Pide sin cebolla').lastInsertRowid;
+      const clientThree = insertClient.run('Juan Rojas', '3023334455', 'Pago por transferencia').lastInsertRowid;
 
-    insertAddress.run(clientOne, 'casa', 'Calle 5 # 23-18', 'San Fernando', 'Cerca al parque', 1);
-    insertAddress.run(clientTwo, 'principal', 'Carrera 34 # 7-80', 'Tequendama', 'Torre 2 apto 301', 1);
-    insertAddress.run(clientThree, 'trabajo', 'Avenida 6 # 11-25', 'Granada', 'Oficina 403', 1);
+      insertAddress.run(clientOne, 'casa', 'Calle 5 # 23-18', 'San Fernando', 'Cerca al parque', 1);
+      insertAddress.run(clientTwo, 'principal', 'Carrera 34 # 7-80', 'Tequendama', 'Torre 2 apto 301', 1);
+      insertAddress.run(clientThree, 'trabajo', 'Avenida 6 # 11-25', 'Granada', 'Oficina 403', 1);
 
-    insertProduct.run('Arroz wok pollo', 'Platos fuertes', 26000, JSON.stringify([]), 1);
-    insertProduct.run('Arroz wok cerdo', 'Platos fuertes', 27000, JSON.stringify([]), 1);
-    insertProduct.run('Ramen especial', 'Especiales', 32000, JSON.stringify([]), 1);
-    insertProduct.run('Combo familiar', 'Combos', 58000, JSON.stringify(['2 arroces + 2 bebidas']), 1);
-    insertProduct.run('Gaseosa personal', 'Bebidas', 5000, JSON.stringify([]), 1);
+      insertProduct.run('Arroz wok pollo', 'Platos fuertes', 26000, JSON.stringify([]), 1);
+      insertProduct.run('Arroz wok cerdo', 'Platos fuertes', 27000, JSON.stringify([]), 1);
+      insertProduct.run('Ramen especial', 'Especiales', 32000, JSON.stringify([]), 1);
+      insertProduct.run('Combo familiar', 'Combos', 58000, JSON.stringify(['2 arroces + 2 bebidas']), 1);
+      insertProduct.run('Gaseosa personal', 'Bebidas', 5000, JSON.stringify([]), 1);
 
-    insertDriver.run('Carlos Gomez', '3205551001', 'Moto', 'Sur', 1, 'disponible');
-    insertDriver.run('Diego Torres', '3205551002', 'Moto', 'Centro', 1, 'disponible');
-    insertDriver.run('Luis Perez', '3205551003', 'Moto', 'Norte', 1, 'disponible');
-    insertDriver.run('Miguel Ruiz', '3205551004', 'Moto', 'Oeste', 0, 'inactivo');
+      insertDriver.run('Carlos Gomez', '3205551001', 'Moto', 'Sur', 1, 'disponible');
+      insertDriver.run('Diego Torres', '3205551002', 'Moto', 'Centro', 1, 'disponible');
+      insertDriver.run('Luis Perez', '3205551003', 'Moto', 'Norte', 1, 'disponible');
+      insertDriver.run('Miguel Ruiz', '3205551004', 'Moto', 'Oeste', 0, 'inactivo');
 
-    const orderOne = insertOrder.run(clientOne, 1, 'en ruta', 'Efectivo', 'San Fernando', 'Calle 5 # 23-18', 'Porteria 2', 'Sin cebolla', 26000, 'Sur').lastInsertRowid;
-    const orderTwo = insertOrder.run(clientTwo, 2, 'listo para salir', 'Nequi/Daviplata', 'Tequendama', 'Carrera 34 # 7-80', 'Apto 301', 'Extra salsa', 32000, 'Centro').lastInsertRowid;
-    const orderThree = insertOrder.run(clientThree, null, 'nuevo', 'Transferencia', 'Granada', 'Avenida 6 # 11-25', 'Oficina 403', 'Entregar antes de las 7', 58000, 'Norte').lastInsertRowid;
+      const orderOne = insertOrder.run(clientOne, 1, 'en ruta', 'Efectivo', 'San Fernando', 'Calle 5 # 23-18', 'Porteria 2', 'Sin cebolla', 26000, 'Sur').lastInsertRowid;
+      const orderTwo = insertOrder.run(clientTwo, 2, 'listo para salir', 'Nequi/Daviplata', 'Tequendama', 'Carrera 34 # 7-80', 'Apto 301', 'Extra salsa', 32000, 'Centro').lastInsertRowid;
+      const orderThree = insertOrder.run(clientThree, null, 'nuevo', 'Transferencia', 'Granada', 'Avenida 6 # 11-25', 'Oficina 403', 'Entregar antes de las 7', 58000, 'Norte').lastInsertRowid;
 
-    insertItem.run(orderOne, 1, 'Arroz wok pollo', 1, 26000, 26000);
-    insertItem.run(orderTwo, 3, 'Ramen especial', 1, 32000, 32000);
-    insertItem.run(orderThree, 4, 'Combo familiar', 1, 58000, 58000);
+      insertItem.run(orderOne, 1, 'Arroz wok pollo', 1, 26000, 26000);
+      insertItem.run(orderTwo, 3, 'Ramen especial', 1, 32000, 32000);
+      insertItem.run(orderThree, 4, 'Combo familiar', 1, 58000, 58000);
+    })(); // Execute the transaction immediately
   }
 
   persist();

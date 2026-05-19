@@ -52,17 +52,29 @@ function money(value) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
+  // Asegurar que la URL esté bien formada sin barras dobles
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  const url = `${baseUrl.replace(/\/$/, '')}${cleanPath}`;
+
+  const response = await fetch(url, {
     headers: {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
       ...(options.headers || {})
     },
     ...options
   });
 
+  const contentType = response.headers.get('content-type');
+  const isJson = contentType && contentType.includes('application/json');
+
   if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
+    const payload = isJson ? await response.json().catch(() => ({})) : {};
     throw new Error(payload.message || 'La solicitud fallo.');
+  }
+
+  if (!isJson) {
+    throw new Error('El servidor no devolvió una respuesta JSON válida.');
   }
 
   return response.json();
@@ -88,8 +100,9 @@ function showToast(message, type = 'info') {
   }, 4000);
 }
 
-function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancelar', onConfirm, onCancel }) {
+function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancelar', onConfirm, onCancel, isWide = false }) {
   const overlay = document.getElementById('modalOverlay');
+  const content = overlay.querySelector('.modal-content');
   const titleEl = document.getElementById('modalTitle');
   const bodyEl = document.getElementById('modalBody');
   const footerEl = document.getElementById('modalFooter');
@@ -97,6 +110,8 @@ function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancela
   titleEl.textContent = title;
   bodyEl.innerHTML = body;
   footerEl.innerHTML = '';
+  
+  content.classList.toggle('wide', isWide);
 
   if (cancelText) {
     const btnCancel = document.createElement('button');
@@ -109,16 +124,49 @@ function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancela
     footerEl.appendChild(btnCancel);
   }
 
-  const btnConfirm = document.createElement('button');
-  btnConfirm.className = 'primary';
-  btnConfirm.textContent = confirmText;
-  btnConfirm.onclick = () => {
-    overlay.classList.remove('active');
-    if (onConfirm) onConfirm();
-  };
-  footerEl.appendChild(btnConfirm);
+  // Only create confirm button when a label is provided
+  if (confirmText) {
+    const btnConfirm = document.createElement('button');
+    btnConfirm.className = 'primary';
+    btnConfirm.textContent = confirmText;
+    btnConfirm.onclick = () => {
+      overlay.classList.remove('active');
+      if (onConfirm) onConfirm();
+    };
+    footerEl.appendChild(btnConfirm);
+  }
+
+  // If no confirmText provided, but the modal body contains a form with its own submit
+  // move the submit action to the footer to avoid visual overlap issues.
+  if (!confirmText) {
+    const form = bodyEl.querySelector('form');
+    if (form) {
+      // Try to find a submit button inside the form
+      const nativeSubmit = form.querySelector('button[type="submit"], input[type="submit"]');
+      let label = 'Guardar';
+      if (nativeSubmit) {
+        label = (nativeSubmit.textContent || nativeSubmit.value || label).trim();
+        nativeSubmit.style.display = 'none';
+      }
+
+      const footerSubmit = document.createElement('button');
+      footerSubmit.className = 'primary';
+      footerSubmit.textContent = label;
+      footerSubmit.onclick = () => {
+        if (typeof form.requestSubmit === 'function') form.requestSubmit();
+        else form.submit();
+      };
+
+      footerEl.appendChild(footerSubmit);
+    }
+  }
 
   overlay.classList.add('active');
+}
+
+function closeModals() {
+  document.getElementById('modalOverlay').classList.remove('active');
+  // Limpiar campos si es necesario
 }
 
 function syncOrderMessage(message, isError = false) {
@@ -133,6 +181,36 @@ function syncOrderMessage(message, isError = false) {
   }
 }
 
+async function renderClientHistory(clientId, container) {
+  container.innerHTML = '<div class="subtle">Cargando historial...</div>';
+  try {
+    const orders = await request(`/api/clients/${clientId}/orders`);
+    if (!orders.length) {
+      container.innerHTML = '<div class="subtle">Sin pedidos registrados.</div>';
+      return;
+    }
+
+    container.innerHTML = orders.map(o => `
+      <div class="row" style="margin-bottom: 8px;">
+        <div style="display:flex; justify-content:space-between;">
+          <strong>Pedido #${o.id}</strong>
+          <span class="meta">${new Date(o.created_at.replace(' ', 'T')).toLocaleDateString()}</span>
+        </div>
+        <div class="meta">${o.status.toUpperCase()} · ${money(o.total)}</div>
+        <div class="subtle" style="font-size: 0.75rem;">
+          ${(o.items || []).map(i => `${i.name_snapshot} x${i.quantity}`).join(', ')}
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Error al cargar historial del cliente:', e);
+    container.innerHTML = `
+      <div class="error" style="color: var(--danger); font-size: 0.85rem;">
+        Error al cargar historial: ${e.message}
+      </div>`;
+  }
+}
+
 function renderClientResults(clients) {
   const container = document.getElementById('clientResults');
 
@@ -143,9 +221,16 @@ function renderClientResults(clients) {
 
   container.innerHTML = clients.map((client) => `
     <article class="card">
-      <h4>${client.name}</h4>
-      <div class="meta">${client.phone} · ${client.address_count || 0} dirección(es)</div>
-      <div class="subtle">${client.primaryAddress ? `${client.primaryAddress.address} · ${client.primaryAddress.barrio}` : 'Sin dirección principal guardada'}</div>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+        <div>
+          <h4 style="margin:0;">${client.name}</h4>
+          <div class="meta">${client.phone} · ${client.address_count || 0} dirección(es)</div>
+        </div>
+        <button type="button" class="btn-secondary" data-client-edit="${client.id}">Editar</button>
+      </div>
+      <div class="subtle" style="margin-top:8px;">
+        ${client.primaryAddress ? `📍 ${client.primaryAddress.address} (${client.primaryAddress.barrio})` : '⚠️ Sin dirección principal'}
+      </div>
     </article>
   `).join('');
 }
@@ -159,38 +244,55 @@ function renderProducts(products) {
   const container = document.getElementById('productsList');
   const select = document.getElementById('orderProductSelect');
 
-  container.innerHTML = products.map((product) => `
-    <div class="row">
-      <strong>${product.name}</strong>
-      <div class="meta">${product.category} · ${money(product.price)} · ${product.active ? 'Activo' : 'Inactivo'}</div>
-    </div>
-  `).join('');
+  if (container) {
+    container.innerHTML = products.map((product) => `
+      <div class="row">
+        <strong>${product.name}</strong>
+        <div class="meta">${product.category} · ${money(product.price)} · ${product.active ? 'Activo' : 'Inactivo'}</div>
+      </div>
+    `).join('');
+  }
 
-  select.innerHTML = products
-    .filter((product) => Number(product.active) === 1)
-    .map((product) => `<option value="${product.id}">${product.name} - ${money(product.price)}</option>`)
-    .join('');
+  if (select) {
+    select.innerHTML = products
+      .filter((product) => Number(product.active) === 1)
+      .map((product) => `<option value="${product.id}">${product.name} - ${money(product.price)}</option>`)
+      .join('');
+  }
 }
 
 function renderDrivers(drivers) {
   const container = document.getElementById('driversList');
+  const orderDriverSelect = document.getElementById('orderDriverSelect');
 
-  container.innerHTML = drivers.map((driver) => `
-    <div class="row">
-      <strong>${driver.name}</strong>
-      <div class="meta">${driver.vehicle} · ${driver.zone || 'Sin zona'} · ${driver.current_status}</div>
-      <div class="tag-row">
-        <span class="tag ${driver.active ? 'success' : 'warning'}">${driver.active ? 'Activo' : 'Inactivo'}</span>
-        <button type="button" data-driver-toggle="${driver.id}" data-active="${driver.active ? '0' : '1'}">
-          ${driver.active ? 'Desactivar' : 'Activar'}
-        </button>
+  const activeDrivers = drivers.filter((d) => Number(d.active) === 1);
+
+  // Actualizar selector en la comanda
+  if (orderDriverSelect) {
+    orderDriverSelect.innerHTML = '<option value="">Sin asignar (despacho manual)</option>' + 
+      activeDrivers.map(d => `<option value="${d.id}">${d.name} (${d.zone || 'Sin zona'})</option>`).join('');
+  }
+
+  if (container) {
+    container.innerHTML = drivers.map((driver) => `
+      <div class="row">
+        <strong>${driver.name}</strong>
+        <div class="meta">${driver.vehicle} · ${driver.zone || 'Sin zona'} · ${driver.current_status}</div>
+        <div class="tag-row">
+          <span class="tag ${driver.active ? 'success' : 'warning'}">${driver.active ? 'Activo' : 'Inactivo'}</span>
+          <button type="button" data-driver-toggle="${driver.id}" data-active="${driver.active ? '0' : '1'}">
+            ${driver.active ? 'Desactivar' : 'Activar'}
+          </button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `).join('');
+  }
 }
 
 function renderPendingItems() {
   const container = document.getElementById('pendingItems');
+
+  if (!container) return;
 
   if (!pendingItems.length) {
     container.innerHTML = '<div class="subtle">No hay productos agregados a la comanda.</div>';
@@ -459,7 +561,17 @@ async function refreshDashboard() {
 
   renderProducts(products);
   renderDrivers(drivers);
-  renderOrders(orders);
+  
+  // Aplicar filtro de búsqueda si existe un término activo
+  const searchInput = document.getElementById('orderSearchInput');
+  const term = searchInput ? searchInput.value.trim() : '';
+  if (term) {
+    const filtered = orders.filter(o => String(o.id).includes(term));
+    renderOrders(filtered);
+  } else {
+    renderOrders(orders);
+  }
+
   renderPendingItems();
   renderStats(stats);
   renderOverviewKpis();
@@ -481,11 +593,96 @@ function syncOrderMessage(message, isError = false) {
 async function main() {
   wireSidebarNavigation();
 
+  // --- Gestión de Clientes ---
+
+  document.getElementById('openClientModal').addEventListener('click', () => {
+    openClientModal();
+  });
+
+  document.getElementById('clientResults').addEventListener('click', async (e) => {
+    const clientId = e.target.dataset.clientEdit;
+    if (!clientId) return;
+
+    // Buscar datos completos del cliente en el estado actual
+    const clients = await request(`/api/clients?q=${clientId}`); // Búsqueda por ID o similar
+    const client = clients.find(c => String(c.id) === clientId);
+    
+    if (client) openClientModal(client);
+  });
+
+  function openClientModal(client = null) {
+    const template = document.getElementById('clientFormTemplate');
+    showModal({
+      title: client ? `Editar Cliente: ${client.name}` : 'Registrar Nuevo Cliente',
+      body: template.innerHTML,
+      confirmText: null,
+      cancelText: 'Cancelar',
+      isWide: true
+    });
+
+    const modalBody = document.querySelector('.modal-body');
+    const form = modalBody.querySelector('#clientForm');
+    
+    if (client) {
+      // Lógica de Pestañas
+      const links = modalBody.querySelectorAll('.tab-link');
+      const contents = modalBody.querySelectorAll('.tab-content');
+      links.forEach(link => {
+        link.onclick = () => {
+          const target = link.dataset.tab;
+          links.forEach(l => l.classList.toggle('active', l === link));
+          contents.forEach(c => c.classList.toggle('active', c.id === target));
+          if (target === 'client-history') renderClientHistory(client.id, modalBody.querySelector('#history-list'));
+        };
+      });
+
+      // Llenar Formulario
+      form.clientId.value = client.id;
+      form.name.value = client.name;
+      form.phone.value = client.phone;
+      form.notes.value = client.notes || '';
+      if (client.primaryAddress) {
+        form.address.value = client.primaryAddress.address;
+        form.barrio.value = client.primaryAddress.barrio;
+        form.reference.value = client.primaryAddress.reference;
+      }
+    } else {
+      modalBody.querySelector('.tabs').style.display = 'none';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      form.classList.add('was-validated');
+      if (!form.checkValidity()) return;
+
+      const data = getFormData(form);
+      try {
+        await request('/api/clients/resolve', {
+          method: 'POST',
+          body: JSON.stringify(data)
+        });
+        showToast(client ? 'Cliente actualizado' : 'Cliente registrado con éxito', 'success');
+        closeModals();
+        // Refrescar lista si estamos en la vista de clientes
+        const searchVal = document.getElementById('clientSearchInput').value;
+        await loadClients(searchVal);
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  // --- Gestión de Comandas ---
+
+  // Lógica para abrir comanda en modal
+  document.getElementById('openOrderModal').addEventListener('click', () => {
+    openOrderPanel();
+  });
+
   // Auto-completado de cliente por teléfono en la Comanda
-  const orderPhoneInput = document.querySelector('#orderForm [name="phone"]');
-  orderPhoneInput.addEventListener('blur', async () => {
-    const phone = orderPhoneInput.value.trim();
-    const nameInput = document.querySelector('#orderForm [name="name"]');
+  async function handlePhoneBlur(event) {
+    const phone = event.target.value.trim();
+    const nameInput = document.querySelector('.modal-body [name="name"]');
     const currentNameInput = nameInput.value.trim();
 
     if (phone.length >= 7) {
@@ -512,17 +709,138 @@ async function main() {
         console.error('Error al buscar cliente para auto-completado', e);
       }
     }
-  });
+  }
 
-  function fillOrderClientData(client) {
-    const form = document.getElementById('orderForm');
+  async function fillOrderClientData(client) {
+    const form = document.querySelector('#orderForm');
+    if (!form) return;
+
     form.querySelector('[name="name"]').value = client.name;
+    
+    // Carga de direcciones múltiples
+    try {
+      const addresses = await request(`/api/clients/${client.id}/addresses`);
+      const addrContainer = form.querySelector('#addressSelectorContainer');
+      const addrSelect = form.querySelector('#savedAddressSelect');
+      
+      if (addresses.length > 0) {
+        addrSelect.innerHTML = '<option value="">-- Seleccionar dirección --</option>' + 
+          addresses.map(a => `<option value="${a.id}">${a.label.toUpperCase()}: ${a.address} (${a.barrio})</option>`).join('');
+        addrContainer.style.display = 'block';
+        
+        addrSelect.onchange = (e) => {
+          const selected = addresses.find(a => String(a.id) === e.target.value);
+          if (selected) {
+            form.querySelector('[name="address"]').value = selected.address;
+            form.querySelector('[name="barrio"]').value = selected.barrio;
+            form.querySelector('[name="reference"]').value = selected.reference;
+          }
+        };
+      }
+    } catch (err) { console.error('Error cargando direcciones:', err); }
+
     if (client.primaryAddress) {
       form.querySelector('[name="address"]').value = client.primaryAddress.address;
       form.querySelector('[name="barrio"]').value = client.primaryAddress.barrio;
       form.querySelector('[name="reference"]').value = client.primaryAddress.reference;
     }
-    showToast(`Datos de ${client.name} cargados`, 'info');
+    showToast(`Cliente ${client.name} vinculado`, 'info');
+  }
+
+  function attachOrderFormEvents(container = document) {
+    const form = container.querySelector('#orderForm');
+    if (!form) return;
+    
+    // Llenar selectores
+    const productSelect = form.querySelector('#orderProductSelect');
+    const productSearch = form.querySelector('#orderProductSearch');
+
+    const updateProductList = (query = '') => {
+      const term = query.toLowerCase().trim();
+      productSelect.innerHTML = dashboardState.products
+        .filter(p => p.active && p.name.toLowerCase().includes(term))
+        .map(p => `<option value="${p.id}">${p.name} - ${money(p.price)}</option>`).join('');
+    };
+
+    updateProductList();
+    productSearch.addEventListener('input', (e) => updateProductList(e.target.value));
+
+    const driverSelect = form.querySelector('#orderDriverSelect');
+    driverSelect.innerHTML = '<option value="">Sin asignar</option>' + 
+      dashboardState.drivers.filter(d => d.active).map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+
+    // Eventos de productos
+    form.querySelector('#addItemButton').addEventListener('click', () => {
+      const productId = Number(productSelect.value);
+      const qtyInput = form.querySelector('#orderQuantityInput');
+      const qty = Number(qtyInput.value) || 1;
+      
+      const product = dashboardState.products.find(p => p.id === productId);
+      pendingItems.push({ 
+        productId, 
+        quantity: qty, 
+        name: product.name, 
+        unitPrice: product.price 
+      });
+      qtyInput.value = 1;
+      renderPendingItemsInModal();
+    });
+
+    form.querySelector('[name="phone"]').addEventListener('blur', handlePhoneBlur);
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      // Activamos los estilos de validación visual
+      form.classList.add('was-validated');
+
+      // Validamos integridad del formulario y lista de productos
+      if (!form.checkValidity() || !pendingItems.length) {
+        form.classList.add('shake-form');
+        setTimeout(() => form.classList.remove('shake-form'), 500);
+        
+        if (!pendingItems.length) {
+          showToast('Agrega al menos un producto a la comanda.', 'error');
+        } else {
+          showToast('Faltan datos obligatorios. Revisa los campos en rojo.', 'error');
+          form.querySelector('[required]:invalid')?.focus();
+        }
+        return;
+      }
+
+      const data = getFormData(e.target);
+      try {
+        const result = await request('/api/orders', {
+          method: 'POST',
+          body: JSON.stringify({
+            client: { ...data },
+            paymentMethod: data.paymentMethod,
+            driverId: data.driverId || null,
+            items: pendingItems,
+            notes: data.notes
+          })
+        });
+        showToast(`Comanda #${result.order.id} creada`, 'success');
+        pendingItems.length = 0;
+        closeOrderPanel();
+        await refreshDashboard();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    });
+  }
+
+  function renderPendingItemsInModal() {
+    const container = document.querySelector('#pendingItems');
+    const total = pendingItems.reduce((s, i) => s + (i.quantity * i.unitPrice), 0);
+    
+    container.innerHTML = pendingItems.map((item, idx) => `
+      <div class="row">
+        <span>${item.name} x${item.quantity}</span>
+        <strong>${money(item.quantity * item.unitPrice)}</strong>
+        <button type="button" onclick="pendingItems.splice(${idx},1); renderPendingItemsInModal();">x</button>
+      </div>
+    `).join('') + `<div class="row">Total: ${money(total)}</div>`;
   }
 
   document.getElementById('clientSearchForm').addEventListener('submit', async (event) => {
@@ -559,53 +877,6 @@ async function main() {
     await refreshDashboard();
   });
 
-  document.getElementById('addItemButton').addEventListener('click', () => {
-    const select = document.getElementById('orderProductSelect');
-    const quantityInput = document.getElementById('orderQuantityInput');
-    const productId = Number(select.value);
-    const quantity = Math.max(1, Number(quantityInput.value) || 1);
-    const option = select.selectedOptions[0];
-    if (!option) {
-      return;
-    }
-
-    const text = option.textContent.split(' - ');
-    const name = text[0];
-    const unitPrice = Number(String(text[1] || '0').replace(/[^0-9]/g, '')) || 0;
-
-    // Buscar info adicional del producto (como si es combo)
-    const productInfo = dashboardState.products.find(p => p.id === productId);
-    const comboItems = productInfo?.combo_items ? JSON.parse(productInfo.combo_items) : [];
-
-    pendingItems.push({ 
-      productId, 
-      quantity, 
-      name, 
-      unitPrice,
-      isCombo: comboItems.length > 0,
-      comboInfo: comboItems.join(', ')
-    });
-
-    quantityInput.value = 1;
-    renderPendingItems();
-  });
-
-  document.getElementById('clearOrderForm').addEventListener('click', () => {
-    document.getElementById('orderForm').reset();
-    pendingItems.length = 0;
-    renderPendingItems();
-    syncOrderMessage('Formulario de comanda reiniciado.');
-  });
-
-  document.getElementById('pendingItems').addEventListener('click', (event) => {
-    const removeIndex = event.target.dataset.itemRemove;
-    if (removeIndex === undefined) {
-      return;
-    }
-    pendingItems.splice(Number(removeIndex), 1);
-    renderPendingItems();
-  });
-
   document.getElementById('driverForm').addEventListener('click', async (event) => {
     const driverId = event.target.dataset.driverToggle;
     if (driverId === undefined) {
@@ -622,40 +893,6 @@ async function main() {
     await refreshDashboard();
   });
 
-  document.getElementById('orderForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    try {
-      if (!pendingItems.length) {
-        throw new Error('Agrega al menos un producto.');
-      }
-
-      const formData = getFormData(event.currentTarget);
-      const result = await request('/api/orders', {
-        method: 'POST',
-        body: JSON.stringify({
-          client: {
-            name: formData.name,
-            phone: formData.phone,
-            address: formData.address,
-            barrio: formData.barrio,
-            reference: formData.reference,
-            notes: formData.notes
-          },
-          paymentMethod: formData.paymentMethod,
-          items: pendingItems.map((item) => ({ productId: item.productId, quantity: item.quantity })),
-          status: 'nuevo'
-        })
-      });
-
-      pendingItems.length = 0;
-      event.currentTarget.reset();
-      syncOrderMessage(`Comanda #${result.order.id} creada con éxito.`);
-      await refreshDashboard();
-    } catch (error) {
-      syncOrderMessage(error.message, true);
-    }
-  });
-
   document.getElementById('statsForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = getFormData(event.currentTarget);
@@ -663,6 +900,28 @@ async function main() {
     const stats = await request(`/api/stats?range=${encodeURIComponent(formData.range)}&cutoffHour=${encodeURIComponent(cutoffHour)}`);
     renderStats(stats);
   });
+
+  // Order panel controls
+  function openOrderPanel() {
+    const panel = document.getElementById('orderPanel');
+    const body = document.getElementById('orderPanelBody');
+    const template = document.getElementById('orderFormTemplate');
+    body.innerHTML = template.innerHTML;
+    panel.classList.add('open');
+    attachOrderFormEvents(body);
+    renderPendingItemsInModal();
+  }
+
+  function closeOrderPanel() {
+    const panel = document.getElementById('orderPanel');
+    if (!panel) return;
+    panel.classList.remove('open');
+    const body = document.getElementById('orderPanelBody');
+    if (body) body.innerHTML = '';
+  }
+
+  const closePanelBtn = document.getElementById('closeOrderPanel');
+  if (closePanelBtn) closePanelBtn.addEventListener('click', closeOrderPanel);
 
   // Event listener for order status changes
   document.getElementById('ordersList').addEventListener('change', async (event) => {
@@ -682,11 +941,30 @@ async function main() {
       }
     }
   });
+
+  // Buscador de pedidos por ID en tiempo real
+  document.getElementById('orderSearchInput').addEventListener('input', (e) => {
+    const term = e.target.value.trim();
+    if (!term) {
+      renderOrders(dashboardState.orders);
+      return;
+    }
+    const filtered = dashboardState.orders.filter(o => String(o.id).includes(term));
+    renderOrders(filtered);
+  });
+
+  // Auto-refresco de la actividad y estadísticas cada 30 segundos
+  setInterval(async () => {
+    await refreshDashboard();
+  }, 30000);
+
   await loadClients('');
   await refreshDashboard();
 }
 
 main().catch((error) => {
-  document.getElementById('serverStatus').textContent = 'Error al iniciar';
-  document.getElementById('orderMessage').textContent = error.message;
+  const status = document.getElementById('serverStatus');
+  const msg = document.getElementById('orderMessage');
+  if (status) status.textContent = 'Error al iniciar';
+  if (msg) msg.textContent = error.message;
 });

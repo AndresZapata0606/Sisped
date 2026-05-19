@@ -160,48 +160,11 @@
           <section class="view-panel" id="ordersView" data-view="orders">
             <div class="view-header">
               <div>
-                <p class="eyebrow">Comanda</p>
-                <h2>Nueva comanda</h2>
+                <p class="eyebrow">Gestion</p>
+                <h2>Pedidos en curso</h2>
               </div>
-              <p class="subtle">Cliente, productos, pago y observaciones.</p>
+              <button type="button" id="openOrderModal" class="primary">+ Nueva comanda</button>
             </div>
-
-            <section class="panel">
-              <form id="orderForm" class="order-form">
-                <div class="form-grid">
-                  <input name="name" type="text" placeholder="Nombre del cliente" required />
-                  <input name="phone" type="text" placeholder="Teléfono" required />
-                  <input name="address" type="text" placeholder="Dirección" required />
-                  <input name="barrio" type="text" placeholder="Barrio" required />
-                  <input name="reference" type="text" placeholder="Referencia" />
-                  <select name="paymentMethod">
-                    <option>Efectivo</option>
-                    <option>Transferencia</option>
-                    <option>Nequi/Daviplata</option>
-                  </select>
-                </div>
-                <textarea name="notes" rows="3" placeholder="Observaciones"></textarea>
-
-                <div class="items-builder">
-                  <div class="panel-header compact">
-                    <h3>Agregar ítems</h3>
-                    <span>selecciona productos del catálogo</span>
-                  </div>
-                  <div class="inline-form wrap">
-                    <select id="orderProductSelect"></select>
-                    <input id="orderQuantityInput" type="number" min="1" value="1" />
-                    <button type="button" id="addItemButton">Agregar</button>
-                  </div>
-                  <div id="pendingItems" class="mini-list"></div>
-                </div>
-
-                <div class="inline-actions">
-                  <button type="submit" class="primary">Crear comanda</button>
-                  <button type="button" id="clearOrderForm">Limpiar</button>
-                  <div id="orderMessage" class="message"></div>
-                </div>
-              </form>
-            </section>
 
             <section class="overview-grid">
               <article class="panel chart-panel">
@@ -214,8 +177,11 @@
 
               <article class="panel">
                 <div class="panel-header">
-                  <h2>Actividad reciente</h2>
-                  <span>últimos movimientos</span>
+                  <div>
+                    <h2>Actividad reciente</h2>
+                    <span>últimos movimientos</span>
+                  </div>
+                  <input type="text" id="orderSearchInput" placeholder="Buscar ID (ej. 1)..." style="width: 150px; padding: 6px 12px; font-size: 0.85rem;" />
                 </div>
                 <div id="ordersList" class="orders-list"></div>
               </article>
@@ -226,9 +192,9 @@
             <div class="view-header">
               <div>
                 <p class="eyebrow">Clientes</p>
-                <h2>Buscar y reutilizar cliente</h2>
+                <h2>Gestión de Clientes</h2>
               </div>
-              <p class="subtle">El sistema busca por nombre o teléfono y conserva varias direcciones.</p>
+              <button type="button" id="openClientModal" class="primary">+ Nuevo Cliente</button>
             </div>
 
             <section class="panel">
@@ -333,6 +299,130 @@
         </div>
         <div class="modal-body" id="modalBody"></div>
         <div class="modal-footer" id="modalFooter"></div>
+      </div>
+    </div>
+
+    <!-- Plantilla para el formulario de cliente -->
+    <template id="clientFormTemplate">
+      <div class="tabs">
+        <button type="button" class="tab-link active" data-tab="client-info">Información</button>
+        <button type="button" class="tab-link" data-tab="client-history">Historial de Pedidos</button>
+      </div>
+
+      <div id="client-info" class="tab-content active">
+        <form id="clientForm" class="order-form">
+          <input type="hidden" name="clientId" />
+          <div class="form-grid-modal">
+            <div class="stack-form">
+              <label class="subtle">Nombre completo</label>
+              <input name="name" type="text" placeholder="Ej. Maria Perez" required />
+            </div>
+            <div class="stack-form">
+              <label class="subtle">Teléfono</label>
+              <input name="phone" type="text" placeholder="3010000000" required />
+            </div>
+          </div>
+          
+          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--panel-border);">
+            <h3 style="font-size: 1rem; margin-bottom: 10px;">Dirección Principal</h3>
+            <div class="form-grid-modal">
+              <input name="address" type="text" placeholder="Dirección" required />
+              <input name="barrio" type="text" placeholder="Barrio" required />
+              <input name="reference" type="text" placeholder="Referencia" class="span-2" />
+            </div>
+          </div>
+          <textarea name="notes" rows="2" placeholder="Notas internas..." style="margin-top: 10px;"></textarea>
+          <div class="inline-actions" style="margin-top: 20px;">
+            <button type="submit" class="primary" style="flex: 1;">Guardar Cliente</button>
+          </div>
+        </form>
+      </div>
+
+      <div id="client-history" class="tab-content">
+        <div id="history-list" class="mini-list"></div>
+      </div>
+    </template>
+
+    <!-- Plantilla para el formulario de comanda -->
+    <template id="orderFormTemplate">
+      <form id="orderForm" class="order-form">
+        <div class="form-grid-modal">
+          <div class="stack-form">
+            <label class="subtle">Nombre del cliente</label>
+            <input name="name" type="text" placeholder="Ej. Juan Pérez" required />
+          </div>
+          <div class="stack-form">
+            <label class="subtle">Teléfono</label>
+            <input name="phone" type="text" placeholder="300 000 0000" required />
+          </div>
+          <div class="stack-form">
+            <label class="subtle">Dirección</label>
+            <input name="address" type="text" placeholder="Calle / Carrera" required />
+          </div>
+          <div class="stack-form">
+            <label class="subtle">Barrio</label>
+            <input name="barrio" type="text" placeholder="Nombre del barrio" required />
+          </div>
+          <div class="stack-form">
+            <label class="subtle">Referencia</label>
+            <input name="reference" type="text" placeholder="Apto / Local / Color casa" />
+          </div>
+          <div class="stack-form">
+            <label class="subtle">Método de pago</label>
+            <select name="paymentMethod">
+              <option>Efectivo</option>
+              <option>Transferencia</option>
+              <option>Nequi/Daviplata</option>
+            </select>
+          </div>
+        </div>
+        
+        <div id="addressSelectorContainer" style="display: none; margin-top: 10px;">
+          <label class="subtle">Usar dirección guardada</label>
+          <select id="savedAddressSelect"></select>
+        </div>
+
+        <div class="stack-form" style="margin-top: 10px;">
+          <label class="subtle">Asignar domiciliario</label>
+          <select name="driverId" id="orderDriverSelect">
+            <option value="">Sin asignar (despacho manual)</option>
+          </select>
+        </div>
+
+        <textarea name="notes" rows="2" placeholder="Observaciones o extras (Obligatorio)" required style="margin-top: 10px;"></textarea>
+
+        <div class="items-builder" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--panel-border);">
+          <div class="panel-header compact">
+            <h3>Productos</h3>
+          </div>
+          <input type="text" id="orderProductSearch" placeholder="🔍 Buscar plato (ej. Arroz)..." style="margin-bottom: 10px; width: 100%;" />
+          <div class="inline-form wrap">
+            <select id="orderProductSelect"></select>
+            <input id="orderQuantityInput" type="number" min="1" value="1" />
+            <button type="button" id="addItemButton">Agregar</button>
+          </div>
+          <div id="pendingItems" class="mini-list"></div>
+        </div>
+
+        <div class="inline-actions" style="margin-top: 20px;">
+          <button type="submit" class="primary" style="flex: 1;">Crear comanda</button>
+        </div>
+      </form>
+    </template>
+
+    <!-- Panel lateral persistente para Comanda -->
+    <div id="orderPanel" class="order-panel">
+      <div class="order-panel-header">
+        <div>
+          <strong>Comanda</strong>
+          <p class="subtle">Formulario rápido de despacho</p>
+        </div>
+        <div>
+          <button id="closeOrderPanel" class="btn-secondary">Cerrar</button>
+        </div>
+      </div>
+      <div class="order-panel-body" id="orderPanelBody">
+        <!-- El formulario se inyecta aquí desde la plantilla -->
       </div>
     </div>
 

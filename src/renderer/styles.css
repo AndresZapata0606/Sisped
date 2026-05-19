@@ -188,6 +188,8 @@ body {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+  grid-auto-rows: minmax(80px, auto);
+  align-items: stretch;
 }
 
 .insight-grid {
@@ -318,6 +320,30 @@ body {
   margin: 0;
   color: var(--muted);
   line-height: 1.5;
+}
+
+/* Layout reordering for clearer KPI hierarchy */
+.kpi-grid > .kpi-card:nth-child(1) { grid-column: 1 / span 2; }
+.kpi-grid > .kpi-card:nth-child(2) { grid-column: 3 / span 2; }
+.kpi-grid > .kpi-card:nth-child(3) { grid-column: 1; }
+.kpi-grid > .kpi-card:nth-child(4) { grid-column: 2; }
+.kpi-grid > .kpi-card:nth-child(5) { grid-column: 3; }
+.kpi-grid > .kpi-card:nth-child(6) { grid-column: 4; }
+.kpi-grid > .kpi-card:nth-child(7) { grid-column: 1 / span 2; }
+.kpi-grid > .kpi-card:nth-child(8) { grid-column: 3 / span 2; }
+
+.kpi-card strong { font-size: 2.2rem; }
+.kpi-card span { font-weight: 600; letter-spacing: 0.2px; }
+
+/* Reduce visual clutter: softer borders and clearer accents */
+.kpi-card { border-width: 1px; }
+.kpi-card.accent { box-shadow: 0 18px 50px rgba(249, 115, 22, 0.06); }
+
+@media (max-width: 1200px) {
+  .kpi-grid > .kpi-card:nth-child(1),
+  .kpi-grid > .kpi-card:nth-child(2),
+  .kpi-grid > .kpi-card:nth-child(7),
+  .kpi-grid > .kpi-card:nth-child(8) { grid-column: 1 / -1; }
 }
 
 .overview-grid {
@@ -603,6 +629,12 @@ body {
   gap: 10px;
 }
 
+.form-grid-modal {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
 input,
 select,
 textarea,
@@ -872,6 +904,77 @@ button[type='submit'] {
   }
 }
 
+/* --- Panel lateral para Comanda --- */
+.order-panel {
+  position: fixed;
+  right: 18px;
+  top: 80px;
+  width: 420px;
+  max-width: calc(100% - 40px);
+  height: calc(100% - 120px);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  box-shadow: 0 30px 90px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  z-index: 1500;
+  overflow: hidden;
+}
+.order-panel { display: none; }
+.order-panel.open { display: flex; }
+
+.order-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(148,163,184,0.06);
+}
+
+.order-panel-body {
+  padding: 14px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+@media (max-width: 1000px) {
+  .order-panel { width: 360px; right: 12px; }
+}
+
+@media (max-width: 840px) {
+  .order-panel {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
+  }
+}
+
+/* Animación de "sacudida" para formularios con errores */
+.shake-form {
+  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  perspective: 1000px;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translate3d(-1px, 0, 0); }
+  20%, 80% { transform: translate3d(2px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+  40%, 60% { transform: translate3d(4px, 0, 0); }
+}
+
+/* Estilo para campos inválidos */
+.was-validated input:invalid, 
+.was-validated select:invalid, 
+.was-validated textarea:invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.1);
+}
+
 /* --- Sistema de Toasts --- */
 .toast-container {
   position: fixed;
@@ -927,9 +1030,15 @@ button[type='submit'] {
   border: 1px solid var(--panel-border);
   border-radius: 24px;
   width: min(500px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
   padding: 24px;
   box-shadow: 0 30px 90px rgba(0,0,0,0.6);
   animation: modal-pop 0.3s ease-out;
+}
+
+.modal-content.wide {
+  width: min(800px, 100%);
 }
 
 @keyframes modal-pop {
@@ -973,3 +1082,30 @@ button[type='submit'] {
   background: var(--danger);
   color: #000;
 }
+
+/* --- Tabs --- */
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 8px;
+}
+
+.tab-link {
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--panel-border);
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.tab-link.active {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.tab-content { display: none; }
+.tab-content.active { display: block; }

@@ -198,52 +198,96 @@ async function startServer() {
     })));
   });
 
-  app.post('/api/clients/resolve', (request, response) => {
-    const name = String(request.body.name || '').trim();
-    const phone = normalizePhone(request.body.phone);
-    const address = String(request.body.address || '').trim();
-    const barrio = String(request.body.barrio || '').trim();
-    const reference = String(request.body.reference || '').trim();
-    const notes = String(request.body.notes || '').trim();
+  app.get('/api/clients/:id/addresses', (request, response) => {
+    const addresses = db.prepare('SELECT * FROM client_addresses WHERE client_id = ? ORDER BY is_primary DESC, created_at DESC').all(request.params.id);
+    response.json(addresses);
+  });
 
-    if (!name || !phone) {
-      return response.status(400).json({ message: 'Nombre y telefono son obligatorios.' });
+  app.get('/api/clients/:id/orders', (request, response) => {
+    const clientId = toNumber(request.params.id);
+    if (clientId === 0) { // Asumiendo que los IDs de cliente son siempre positivos
+      return response.status(400).json({ message: 'ID de cliente inválido.' });
     }
 
-    const existing = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
-    const saveClient = existing
-      ? db.prepare('UPDATE clients SET name = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      : db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)');
+    try {
+      const orders = db.prepare(`
+        SELECT o.*, d.name AS driver_name
+        FROM orders o
+        LEFT JOIN drivers d ON d.id = o.driver_id
+        WHERE o.client_id = ?
+        ORDER BY datetime(o.created_at) DESC
+        LIMIT 50
+      `).all(clientId);
 
-    let clientId = existing ? existing.id : null;
-
-    if (existing) {
-      saveClient.run(name, notes, existing.id);
-    } else {
-      const result = saveClient.run(name, phone, notes);
-      clientId = result.lastInsertRowid;
-    }
-
-    if (address) {
-      if (request.body.setPrimaryAddress !== false) {
-        db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = ?').run(clientId);
+      const orderIds = orders.map(o => o.id);
+      let itemsByOrder = {};
+      if (orderIds.length > 0) {
+        itemsByOrder = db.prepare(`
+          SELECT oi.* FROM order_items oi 
+          WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')})
+        `).all(orderIds).reduce((acc, item) => {
+          if (!acc[item.order_id]) acc[item.order_id] = [];
+          acc[item.order_id].push(item);
+          return acc;
+        }, {});
       }
-
-      db.prepare(`
-        INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(clientId, request.body.label || 'principal', address, barrio, reference, request.body.setPrimaryAddress === false ? 0 : 1);
+      response.json(orders.map(o => ({ ...o, items: itemsByOrder[o.id] || [] })));
+    } catch (error) {
+      console.error('Error al obtener historial de pedidos:', error);
+      response.status(500).json({ message: 'Error interno al cargar el historial de pedidos.' });
     }
+  });
 
-    const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
-    const primaryAddress = db.prepare(`
-      SELECT * FROM client_addresses WHERE client_id = ? ORDER BY is_primary DESC, created_at DESC LIMIT 1
-    `).get(clientId) || null;
+  app.post('/api/clients/resolve', (request, response) => { // Wrap client resolution in a transaction
+    try {
+      const result = db.transaction(() => {
+        const name = String(request.body.name || '').trim();
+        const phone = normalizePhone(request.body.phone);
+        const address = String(request.body.address || '').trim();
+        const barrio = String(request.body.barrio || '').trim();
+        const reference = String(request.body.reference || '').trim();
+        const notes = String(request.body.notes || '').trim();
 
-    response.json({
-      client,
-      primaryAddress
-    });
+        if (!name || !phone) {
+          throw new Error('Nombre y telefono son obligatorios.');
+        }
+
+        const existing = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
+        const saveClient = existing
+          ? db.prepare('UPDATE clients SET name = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          : db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)');
+
+        let clientId = existing ? existing.id : null;
+
+        if (existing) {
+          saveClient.run(name, notes, existing.id);
+        } else {
+          const insertResult = saveClient.run(name, phone, notes);
+          clientId = insertResult.lastInsertRowid;
+        }
+
+        if (address) {
+          if (request.body.setPrimaryAddress !== false) {
+            db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = ?').run(clientId);
+          }
+
+          db.prepare(`
+            INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(clientId, request.body.label || 'principal', address, barrio, reference, request.body.setPrimaryAddress === false ? 0 : 1);
+        }
+
+        const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
+        const primaryAddress = db.prepare(`
+          SELECT * FROM client_addresses WHERE client_id = ? ORDER BY is_primary DESC, created_at DESC LIMIT 1
+        `).get(clientId) || null;
+
+        return { client, primaryAddress };
+      })();
+      response.json(result);
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
   });
 
   app.get('/api/products', (_request, response) => {
@@ -264,7 +308,7 @@ async function startServer() {
       INSERT INTO products (name, category, price, combo_items, active)
       VALUES (?, ?, ?, ?, ?)
     `).run(name, category, price, comboItems, request.body.active === false ? 0 : 1);
-
+    db.save(); // Persist changes
     response.status(201).json(db.prepare('SELECT * FROM products WHERE id = ?').get(result.lastInsertRowid));
   });
 
@@ -286,7 +330,7 @@ async function startServer() {
       INSERT INTO drivers (name, phone, vehicle, zone, active, current_status)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(name, phone, vehicle, zone, request.body.active === false ? 0 : 1, 'disponible');
-
+    db.save(); // Persist changes
     response.status(201).json(db.prepare('SELECT * FROM drivers WHERE id = ?').get(result.lastInsertRowid));
   });
 
@@ -294,6 +338,7 @@ async function startServer() {
     const active = request.body.active ? 1 : 0;
     db.prepare('UPDATE drivers SET active = ?, current_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(active, active ? 'disponible' : 'inactivo', request.params.id);
+    db.save(); // Persist changes
     response.json(db.prepare('SELECT * FROM drivers WHERE id = ?').get(request.params.id));
   });
 
@@ -326,100 +371,89 @@ async function startServer() {
   });
 
   app.post('/api/orders', (request, response) => {
-    const clientData = request.body.client || {};
-    const items = Array.isArray(request.body.items) ? request.body.items : [];
-    const paymentMethod = String(request.body.paymentMethod || 'Efectivo').trim();
-    const status = String(request.body.status || 'nuevo').trim();
-    const driverId = request.body.driverId ? Number(request.body.driverId) : null;
-
-    const resolved = request.body.clientId
-      ? { client: db.prepare('SELECT * FROM clients WHERE id = ?').get(request.body.clientId), primaryAddress: null }
-      : (() => {
-          const result = db.prepare(`
-            SELECT c.*
-            FROM clients c
-            WHERE c.phone = ?
-          `).get(normalizePhone(clientData.phone));
-          if (result) {
-            const resolvedClient = db.prepare('UPDATE clients SET name = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-              .run(String(clientData.name || '').trim() || result.name, String(clientData.notes || '').trim(), result.id);
-            const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(result.id);
-            return { client, primaryAddress: null };
-          }
-          const insertClient = db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)');
-          const insertAddress = db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary) VALUES (?, ?, ?, ?, ?, ?)');
-          const clientResult = insertClient.run(String(clientData.name || '').trim(), normalizePhone(clientData.phone), String(clientData.notes || '').trim());
-          if (clientData.address) {
-            insertAddress.run(clientResult.lastInsertRowid, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), 1);
-          }
-          return {
-            client: db.prepare('SELECT * FROM clients WHERE id = ?').get(clientResult.lastInsertRowid),
-            primaryAddress: null
-          };
-        })();
-
-    if (!resolved.client) {
-      return response.status(400).json({ message: 'No fue posible resolver el cliente.' });
-    }
-
-    const normalizedItems = items
-      .filter((item) => item.productId)
-      .map((item) => ({
-        productId: Number(item.productId),
-        quantity: Math.max(1, Number(item.quantity) || 1)
-      }));
-
-    if (normalizedItems.length === 0) {
-      return response.status(400).json({ message: 'Debes agregar al menos un producto.' });
-    }
-
-    const productLookup = db.prepare('SELECT * FROM products WHERE id = ?');
-    const transaction = db.transaction(() => {
-      const total = normalizedItems.reduce((sum, item) => {
-        const product = productLookup.get(item.productId);
-        if (!product) {
-          throw new Error(`Producto no encontrado: ${item.productId}`);
-        }
-        return sum + (Number(product.price) * item.quantity);
-      }, 0);
-
-      const orderResult = db.prepare(`
-        INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        resolved.client.id,
-        driverId,
-        status,
-        paymentMethod,
-        String(clientData.barrio || '').trim(),
-        String(clientData.address || '').trim(),
-        String(clientData.reference || '').trim(),
-        String(clientData.notes || '').trim(),
-        total,
-        String(clientData.zone || String(clientData.barrio || '')).trim()
-      );
-
-      normalizedItems.forEach((item) => {
-        const product = productLookup.get(item.productId);
-        db.prepare(`
-          INSERT INTO order_items (order_id, product_id, name_snapshot, quantity, unit_price, line_total)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(orderResult.lastInsertRowid, product.id, product.name, item.quantity, product.price, product.price * item.quantity);
-      });
-
-      if (driverId) {
-        db.prepare('UPDATE drivers SET current_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('en ruta', driverId);
-      }
-
-      const createdOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderResult.lastInsertRowid);
-      return createdOrder;
-    });
-
     try {
-      const createdOrder = transaction();
+      const createdOrder = db.transaction(() => {
+        const clientData = request.body.client || {};
+        const items = Array.isArray(request.body.items) ? request.body.items : [];
+        const paymentMethod = String(request.body.paymentMethod || 'Efectivo').trim();
+        const status = String(request.body.status || 'nuevo').trim();
+        const driverId = request.body.driverId ? Number(request.body.driverId) : null;
+
+        // 1. Resolver Cliente
+        let client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(normalizePhone(clientData.phone));
+        let clientId;
+
+        if (client) {
+          db.prepare('UPDATE clients SET name = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+            .run(String(clientData.name || '').trim() || client.name, String(clientData.notes || '').trim(), client.id);
+          clientId = client.id;
+        } else {
+          const insertClient = db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)');
+          const clientResult = insertClient.run(String(clientData.name || '').trim(), normalizePhone(clientData.phone), String(clientData.notes || '').trim());
+          clientId = clientResult.lastInsertRowid;
+
+          if (clientData.address) {
+            db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary) VALUES (?, ?, ?, ?, ?, ?)')
+              .run(clientId, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), 1);
+          }
+        }
+
+        // 2. Validar Items
+        const normalizedItems = items.filter(i => i.productId).map(i => ({
+          productId: Number(i.productId),
+          quantity: Math.max(1, Number(i.quantity) || 1)
+        }));
+
+        if (normalizedItems.length === 0) throw new Error('Debes agregar al menos un producto.');
+
+        // 3. Calcular Total
+        const productLookup = db.prepare('SELECT * FROM products WHERE id = ?');
+        const total = normalizedItems.reduce((sum, item) => {
+          const product = productLookup.get(item.productId);
+          if (!product) throw new Error(`Producto no encontrado ID: ${item.productId}`);
+          return sum + (Number(product.price) * item.quantity);
+        }, 0);
+
+        // 4. Crear Pedido
+        const orderResult = db.prepare(`
+          INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          clientId,
+          driverId,
+          status,
+          paymentMethod,
+          String(clientData.barrio || '').trim(),
+          String(clientData.address || '').trim(),
+          String(clientData.reference || '').trim(),
+          String(clientData.notes || '').trim(),
+          total,
+          String(clientData.barrio || '').trim()
+        );
+
+        const orderId = orderResult.lastInsertRowid;
+
+        // 5. Crear Items
+        normalizedItems.forEach(item => {
+          const product = productLookup.get(item.productId);
+          db.prepare(`
+            INSERT INTO order_items (order_id, product_id, name_snapshot, quantity, unit_price, line_total)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).run(orderId, product.id, product.name, item.quantity, product.price, product.price * item.quantity);
+        });
+
+        // 6. Actualizar Domiciliario si aplica
+        if (driverId) {
+          db.prepare('UPDATE drivers SET current_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('en ruta', driverId);
+        }
+
+        return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+      })();
+
       const routeSuggestion = createRouteSuggestion(db, createdOrder.id);
       response.status(201).json({ order: createdOrder, routeSuggestion });
     } catch (error) {
+      console.error('Error creando pedido:', error);
       response.status(400).json({ message: error.message });
     }
   });
@@ -448,6 +482,7 @@ async function startServer() {
     params.push(orderId);
 
     db.prepare(updateSql).run(params);
+    db.save(); // Persist changes
     response.json(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId));
   });
 
@@ -483,6 +518,11 @@ async function startServer() {
       : 'day';
     const cutoffHour = toNumber(request.query.cutoffHour || 0); // Get cutoffHour from query parameter
     response.json(buildStats(db, range, cutoffHour)); // Pass cutoffHour to buildStats
+  });
+
+  // Manejador 404 específico para API (antes del comodín de HTML)
+  app.use('/api', (request, response) => {
+    response.status(404).json({ message: `Ruta de API no encontrada: ${request.method} ${request.url}` });
   });
 
   app.get(/.*/, (_request, response) => {
