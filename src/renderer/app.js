@@ -1,5 +1,6 @@
 const baseUrl = window.location.origin;
 const pendingItems = [];
+let productsViewFilter = 'all';
 const dashboardState = {
   products: [],
   drivers: [],
@@ -244,23 +245,67 @@ function renderProducts(products) {
   const container = document.getElementById('productsList');
   const select = document.getElementById('orderProductSelect');
 
-  if (container) {
-    container.innerHTML = products.map((product) => `
-      <div class="row">
-        <div style="flex: 1;">
-          <strong>${product.name}</strong>
-          <div class="meta">${product.category} · ${money(product.price)}</div>
+  const getProductCard = (product) => {
+    const comboItems = parseComboItems(product.combo_items);
+    const isCombo = comboItems.length > 0 || String(product.category || '').toLowerCase().includes('combo');
+    const comboPreview = comboItems.length ? comboItems.slice(0, 3).join(' · ') : 'Sin detalle de combo';
+
+    return `
+      <article class="product-card" data-active="${product.active ? '1' : '0'}">
+        <div class="product-card-top">
+          <div>
+            <div class="product-card-title-row">
+              <h4>${escapeHtml(product.name)}</h4>
+              <span class="product-state ${product.active ? 'is-active' : 'is-inactive'}">${product.active ? 'Activo' : 'Inactivo'}</span>
+              ${isCombo ? '<span class="product-badge combo">Combo</span>' : '<span class="product-badge individual">Individual</span>'}
+            </div>
+            <div class="product-card-meta">${escapeHtml(product.category)} · ${money(product.price)}</div>
+          </div>
+          <div class="product-price">${money(product.price)}</div>
         </div>
-        <div class="tag-row">
-          <span class="tag ${product.active ? 'success' : 'warning'}">${product.active ? 'Activo' : 'Inactivo'}</span>
-          <button type="button" data-product-toggle="${product.id}" data-active="${product.active ? '0' : '1'}">
-            ${product.active ? 'Desactivar' : 'Activar'}
-          </button>
-          <button type="button" data-product-edit="${product.id}">Editar</button>
-          <button type="button" data-product-delete="${product.id}" class="btn-danger">Eliminar</button>
+
+        <div class="product-card-body">
+          <div class="product-detail-label">Catálogo listo para comandera</div>
+          <p>${isCombo ? `Incluye ${comboItems.length} ítem(s).` : 'Producto individual para la comandera diaria.'}</p>
+          <div class="combo-preview">${escapeHtml(comboPreview)}</div>
+        </div>
+
+        <div class="product-card-actions">
+          <button type="button" data-product-toggle="${product.id}" data-active="${product.active ? '0' : '1'}" class="mini-action toggle ${product.active ? 'active' : ''}">${product.active ? 'Desactivar' : 'Activar'}</button>
+          <button type="button" data-product-edit="${product.id}" class="mini-action edit">Editar</button>
+          <button type="button" data-product-delete="${product.id}" class="mini-action danger">Eliminar</button>
+        </div>
+      </article>
+    `;
+  };
+
+  const getGroupMarkup = (title, items, emptyMessage) => `
+    <section class="product-group">
+      <div class="product-group-header">
+        <div>
+          <h3>${title}</h3>
+          <p>${items.length} producto(s)</p>
         </div>
       </div>
-    `).join('');
+      <div class="product-group-list">
+        ${items.length ? items.map(getProductCard).join('') : `<div class="product-group-empty">${emptyMessage}</div>`}
+      </div>
+    </section>
+  `;
+
+  const comboProducts = products.filter((product) => parseComboItems(product.combo_items).length > 0 || String(product.category || '').toLowerCase().includes('combo'));
+  const individualProducts = products.filter((product) => !parseComboItems(product.combo_items).length && !String(product.category || '').toLowerCase().includes('combo'));
+  const sections = {
+    all: [
+      getGroupMarkup('Productos individuales', individualProducts, 'No hay productos individuales registrados.'),
+      getGroupMarkup('Combos', comboProducts, 'No hay combos registrados.')
+    ],
+    individuals: [getGroupMarkup('Productos individuales', individualProducts, 'No hay productos individuales registrados.')],
+    combos: [getGroupMarkup('Combos', comboProducts, 'No hay combos registrados.')]
+  };
+
+  if (container) {
+    container.innerHTML = sections[productsViewFilter].join('');
   }
 
   if (select) {
@@ -269,6 +314,125 @@ function renderProducts(products) {
       .map((product) => `<option value="${product.id}">${product.name} - ${money(product.price)}</option>`)
       .join('');
   }
+
+  document.querySelectorAll('[data-products-filter]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.productsFilter === productsViewFilter);
+  });
+}
+
+function buildDriverModalBody(driver = null) {
+  return `
+    <form id="driverModalForm" class="order-form product-form">
+      <div class="product-form-hero">
+        <div>
+          <p class="eyebrow">Domiciliarios</p>
+          <h3>${driver ? 'Editar domiciliario' : 'Nuevo domiciliario'}</h3>
+        </div>
+        <div class="combo-switch">
+          <span>
+            <strong>Operativo</strong>
+            <small>Activa o desactiva su disponibilidad para rutas.</small>
+          </span>
+        </div>
+      </div>
+
+      <div class="form-grid-modal product-form-grid">
+        <div class="stack-form">
+          <label class="subtle">Nombre</label>
+          <input name="name" type="text" placeholder="Ej: Carlos Gomez" value="${escapeHtml(driver?.name || '')}" required />
+        </div>
+        <div class="stack-form">
+          <label class="subtle">Teléfono</label>
+          <input name="phone" type="text" placeholder="Ej: 3205551001" value="${escapeHtml(driver?.phone || '')}" />
+        </div>
+      </div>
+
+      <div class="form-grid-modal product-form-grid">
+        <div class="stack-form">
+          <label class="subtle">Vehículo</label>
+          <input name="vehicle" type="text" placeholder="Moto" value="${escapeHtml(driver?.vehicle || 'Moto')}" />
+        </div>
+        <div class="stack-form">
+          <label class="subtle">Zona / barrio</label>
+          <input name="zone" type="text" placeholder="Sur, Norte, Centro..." value="${escapeHtml(driver?.zone || '')}" />
+        </div>
+      </div>
+
+      <div class="form-grid-modal product-form-grid">
+        <div class="stack-form">
+          <label class="subtle">Estado operativo</label>
+          <select name="currentStatus">
+            <option value="disponible" ${!driver || String(driver.current_status) === 'disponible' ? 'selected' : ''}>Disponible</option>
+            <option value="en ruta" ${driver && String(driver.current_status) === 'en ruta' ? 'selected' : ''}>En ruta</option>
+            <option value="inactivo" ${driver && String(driver.current_status) === 'inactivo' ? 'selected' : ''}>Inactivo</option>
+          </select>
+        </div>
+        <div class="stack-form">
+          <label class="subtle">Disponibilidad</label>
+          <select name="active">
+            <option value="1" ${!driver || Number(driver.active) === 1 ? 'selected' : ''}>Activo</option>
+            <option value="0" ${driver && Number(driver.active) === 0 ? 'selected' : ''}>Inactivo</option>
+          </select>
+        </div>
+      </div>
+    </form>
+  `;
+}
+
+function openDriverModal(driver = null) {
+  showModal({
+    title: driver ? 'Editar Domiciliario' : 'Nuevo Domiciliario',
+    body: buildDriverModalBody(driver),
+    confirmText: null,
+    cancelText: 'Cancelar',
+    isWide: false
+  });
+
+  queueMicrotask(() => {
+    const form = document.getElementById('driverModalForm');
+    if (!form) {
+      return;
+    }
+
+    form.addEventListener('submit', async (submitEvent) => {
+      submitEvent.preventDefault();
+      const data = getFormData(form);
+
+      try {
+        if (driver) {
+          await request(`/api/drivers/${driver.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              name: data.name,
+              phone: data.phone,
+              vehicle: data.vehicle,
+              zone: data.zone,
+              active: data.active === '1',
+              currentStatus: data.currentStatus
+            })
+          });
+          showToast('Domiciliario actualizado', 'success');
+        } else {
+          await request('/api/drivers', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: data.name,
+              phone: data.phone,
+              vehicle: data.vehicle,
+              zone: data.zone,
+              active: data.active === '1'
+            })
+          });
+          showToast('Domiciliario creado', 'success');
+        }
+
+        closeModals();
+        await refreshDashboard();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }, { once: true });
+  });
 }
 
 function renderDrivers(drivers) {
@@ -276,6 +440,7 @@ function renderDrivers(drivers) {
   const orderDriverSelect = document.getElementById('orderDriverSelect');
 
   const activeDrivers = drivers.filter((d) => Number(d.active) === 1);
+  const inactiveDrivers = drivers.filter((d) => Number(d.active) !== 1);
 
   // Actualizar selector en la comanda
   if (orderDriverSelect) {
@@ -284,18 +449,56 @@ function renderDrivers(drivers) {
   }
 
   if (container) {
-    container.innerHTML = drivers.map((driver) => `
-      <div class="row">
-        <strong>${driver.name}</strong>
-        <div class="meta">${driver.vehicle} · ${driver.zone || 'Sin zona'} · ${driver.current_status}</div>
-        <div class="tag-row">
-          <span class="tag ${driver.active ? 'success' : 'warning'}">${driver.active ? 'Activo' : 'Inactivo'}</span>
-          <button type="button" data-driver-toggle="${driver.id}" data-active="${driver.active ? '0' : '1'}">
-            ${driver.active ? 'Desactivar' : 'Activar'}
-          </button>
+    const renderDriverCard = (driver) => `
+      <article class="driver-card" data-active="${driver.active ? '1' : '0'}">
+        <div class="driver-card-top">
+          <div>
+            <div class="driver-card-title-row">
+              <h4>${escapeHtml(driver.name)}</h4>
+              <span class="driver-state ${driver.active ? 'is-active' : 'is-inactive'}">${driver.active ? 'Activo' : 'Inactivo'}</span>
+            </div>
+            <div class="driver-card-meta">${escapeHtml(driver.vehicle)} · ${escapeHtml(driver.zone || 'Sin zona')} · ${escapeHtml(driver.current_status || 'disponible')}</div>
+          </div>
+          <div class="driver-card-badge">${driver.active ? 'Disponible' : 'Fuera de turno'}</div>
         </div>
-      </div>
-    `).join('');
+
+        <div class="driver-card-body">
+          <div class="driver-detail-label">Contacto</div>
+          <p>${escapeHtml(driver.phone || 'Sin teléfono')}</p>
+        </div>
+
+        <div class="driver-card-actions">
+          <button type="button" data-driver-toggle="${driver.id}" data-active="${driver.active ? '0' : '1'}" class="mini-action toggle ${driver.active ? 'active' : ''}">${driver.active ? 'Desactivar' : 'Activar'}</button>
+          <button type="button" data-driver-edit="${driver.id}" class="mini-action edit">Editar</button>
+          <button type="button" data-driver-delete="${driver.id}" class="mini-action danger">Eliminar</button>
+        </div>
+      </article>
+    `;
+
+    container.innerHTML = `
+      <section class="driver-group">
+        <div class="driver-group-header">
+          <div>
+            <h3>Activos</h3>
+            <p>${activeDrivers.length} domiciliario(s)</p>
+          </div>
+        </div>
+        <div class="driver-group-list">
+          ${activeDrivers.length ? activeDrivers.map(renderDriverCard).join('') : '<div class="product-group-empty">No hay domiciliarios activos.</div>'}
+        </div>
+      </section>
+      <section class="driver-group">
+        <div class="driver-group-header">
+          <div>
+            <h3>Inactivos</h3>
+            <p>${inactiveDrivers.length} domiciliario(s)</p>
+          </div>
+        </div>
+        <div class="driver-group-list">
+          ${inactiveDrivers.length ? inactiveDrivers.map(renderDriverCard).join('') : '<div class="product-group-empty">No hay domiciliarios inactivos.</div>'}
+        </div>
+      </section>
+    `;
   }
 }
 
@@ -377,12 +580,12 @@ function renderOrders(orders) {
 
 function getOrderIcon(status) {
   const s = String(status || '').toLowerCase();
-  if (s === 'nuevo') return '🟦';
-  if (s === 'en preparación') return '🟨';
-  if (s === 'listo para salir') return '✅';
-  if (s === 'en ruta') return '🚚';
-  if (s === 'entregado') return '📦';
-  if (s === 'cancelado') return '🚫';
+  if (s === 'Nuevo') return '🟦';
+  if (s === 'En preparación') return '🟨';
+  if (s === 'Listo para salir') return '✅';
+  if (s === 'En ruta') return '🚚';
+  if (s === 'Entregado') return '📦';
+  if (s === 'Cancelado') return '🚫';
   return '📍';
 }
 
@@ -414,19 +617,128 @@ function getOrderPriorityLabel(order) {
 }
 
 function renderStats(stats) {
+  const summaryContainer = document.getElementById('statsSummaryBanner');
   const container = document.getElementById('statsCards');
+  const trendContainer = document.getElementById('statsTrend');
+  const rangeLabels = {
+    day: 'Día',
+    week: 'Semana',
+    month: 'Mes'
+  };
 
-  container.innerHTML = `
-    <div class="stat"><strong>${stats.totalOrders}</strong><span>Pedidos totales</span></div>
-    <div class="stat"><strong>${stats.deliveredOrders}</strong><span>Pedidos entregados</span></div>
-    <div class="stat"><strong>${stats.cancelledOrders}</strong><span>Pedidos cancelados</span></div>
-    <div class="stat"><strong>${money(stats.totalSales)}</strong><span>Ventas totales</span></div>
-    <div class="stat"><strong>${(stats.averageDeliveryTimeMinutes || 0).toFixed(0)} min</strong><span>Tiempo promedio entrega</span></div>
-    <div class="stat"><strong>${money(stats.averageTicket)}</strong><span>Ticket promedio</span></div>
-    <div class="stat"><strong>${stats.topProduct}</strong><span>Producto mas vendido</span></div>
-    <div class="stat"><strong>${stats.topDriver}</strong><span>Domiciliario lider</span></div>
-    <div class="stat"><strong>${stats.range}</strong><span>Rango consultado</span></div>
-  `;
+  const statusCounts = dashboardState.orders.reduce((accumulator, order) => {
+    const key = String(order.status || 'nuevo').toLowerCase();
+    accumulator[key] = (accumulator[key] || 0) + 1;
+    return accumulator;
+  }, {});
+
+  const statusRows = [
+    { key: 'nuevo', label: 'Nuevos', colorClass: 'fill-0' },
+    { key: 'en preparación', label: 'En preparación', colorClass: 'fill-1' },
+    { key: 'listo para salir', label: 'Listos para salir', colorClass: 'fill-2' },
+    { key: 'en ruta', label: 'En ruta', colorClass: 'fill-0' },
+    { key: 'entregado', label: 'Entregados', colorClass: 'fill-1' },
+    { key: 'cancelado', label: 'Cancelados', colorClass: 'fill-2' }
+  ];
+
+  const maxStatusCount = Math.max(...statusRows.map((row) => statusCounts[row.key] || 0), 1);
+
+  if (summaryContainer) {
+    summaryContainer.innerHTML = `
+      <div class="stats-summary-main">
+        <div>
+          <p class="eyebrow">Resumen del período</p>
+          <h3>${rangeLabels[String(stats.range || 'day')] || stats.range}</h3>
+          <p>${stats.totalOrders} pedidos procesados · ${money(stats.totalSales)} en ventas · corte ${document.querySelector('#statsForm [name="cutoffHour"]')?.value || 20}:00</p>
+        </div>
+        <div class="stats-summary-highlight">
+          <span>Ticket promedio</span>
+          <strong>${money(stats.averageTicket)}</strong>
+          <small>${(stats.averageDeliveryTimeMinutes || 0).toFixed(0)} min de entrega</small>
+        </div>
+      </div>
+      <div class="stats-summary-pulse">
+        <span class="pulse-dot"></span>
+        <span>${stats.deliveredOrders} entregados, ${stats.cancelledOrders} cancelados, ${stats.topProduct} lidera el período.</span>
+      </div>
+    `;
+  }
+
+  if (container) {
+    container.innerHTML = `
+      <article class="stat stat-hero">
+        <span>Pedidos totales</span>
+        <strong>${stats.totalOrders}</strong>
+        <p>En el período seleccionado</p>
+      </article>
+      <article class="stat stat-accent">
+        <span>Ventas totales</span>
+        <strong>${money(stats.totalSales)}</strong>
+        <p>Ingreso acumulado</p>
+      </article>
+      <article class="stat">
+        <span>Pedidos entregados</span>
+        <strong>${stats.deliveredOrders}</strong>
+        <p>Comandas cerradas</p>
+      </article>
+      <article class="stat">
+        <span>Pedidos cancelados</span>
+        <strong>${stats.cancelledOrders}</strong>
+        <p>Con incidencia</p>
+      </article>
+      <article class="stat">
+        <span>Ticket promedio</span>
+        <strong>${money(stats.averageTicket)}</strong>
+        <p>Valor medio por pedido</p>
+      </article>
+      <article class="stat">
+        <span>Tiempo promedio</span>
+        <strong>${(stats.averageDeliveryTimeMinutes || 0).toFixed(0)} min</strong>
+        <p>Desde salida hasta entrega</p>
+      </article>
+      <article class="stat">
+        <span>Producto más vendido</span>
+        <strong>${stats.topProduct}</strong>
+        <p>${stats.topProductCount || 0} unidades</p>
+      </article>
+      <article class="stat">
+        <span>Domiciliario líder</span>
+        <strong>${stats.topDriver}</strong>
+        <p>Mayor cantidad de pedidos</p>
+      </article>
+    `;
+  }
+
+  if (trendContainer) {
+    trendContainer.innerHTML = `
+      <div class="stats-trend-list">
+        ${statusRows.map((row) => {
+          const count = statusCounts[row.key] || 0;
+          const width = `${Math.max((count / maxStatusCount) * 100, 8)}%`;
+          return `
+            <div class="stats-trend-row">
+              <div class="stats-trend-label">
+                <span class="dot ${row.colorClass}"></span>
+                <span>${row.label}</span>
+              </div>
+              <div class="stats-trend-track"><div class="stats-trend-fill ${row.colorClass}" style="width:${width}"></div></div>
+              <strong>${count}</strong>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      <div class="stats-trend-foot">
+        <div>
+          <span>Rango consultado</span>
+          <strong>${rangeLabels[String(stats.range || 'day')] || stats.range}</strong>
+        </div>
+        <div>
+          <span>Top estado</span>
+          <strong>${Object.entries(statusCounts).sort((left, right) => right[1] - left[1])[0]?.[0] || 'Sin datos'}</strong>
+        </div>
+      </div>
+    `;
+  }
 }
 
 function renderOverviewKpis() {
@@ -592,6 +904,285 @@ async function refreshDashboard() {
 
 function getFormData(form) {
   return Object.fromEntries(new FormData(form).entries());
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function parseComboItems(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item).trim()).filter(Boolean);
+    }
+  } catch (_error) {
+    // Fall through to plain-text parsing.
+  }
+
+  return String(value)
+    .split(/\r?\n|,/) 
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+}
+
+function formatComboItems(value) {
+  return parseComboItems(value).join('\n');
+}
+
+function buildProductModalBody(product = null, suggestions = []) {
+  const comboItems = parseComboItems(product?.combo_items);
+  const isCombo = comboItems.length > 0 || String(product?.category || '').toLowerCase().includes('combo');
+  const suggestionList = suggestions
+    .map((item) => String(item).trim())
+    .filter(Boolean)
+    .filter((item, index, array) => array.indexOf(item) === index)
+    .filter((item) => !comboItems.includes(item));
+  const suggestionMarkup = suggestionList.length
+    ? suggestionList.map((item) => `<button type="button" class="combo-chip option" data-combo-option="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join('')
+    : '<div class="combo-empty">No hay productos base sugeridos todavía.</div>';
+  const selectedMarkup = comboItems.length
+    ? comboItems.map((item) => `<button type="button" class="combo-chip selected" data-combo-selected="${escapeHtml(item)}">${escapeHtml(item)}<span>×</span></button>`).join('')
+    : '<div class="combo-empty">Aún no hay ítems seleccionados.</div>';
+
+  return `
+    <form id="productForm" class="order-form product-form">
+      <div class="product-form-hero">
+        <div>
+          <p class="eyebrow">${product ? 'Editar producto' : 'Nuevo producto'}</p>
+          <h3>${product ? 'Ajusta la información del catálogo' : 'Agrega un nuevo ítem al catálogo'}</h3>
+        </div>
+        <label class="combo-switch">
+          <input type="checkbox" name="isCombo" ${isCombo ? 'checked' : ''} />
+          <span>
+            <strong>Es combo</strong>
+            <small>Activa esta opción si agrupa varios ítems del catálogo.</small>
+          </span>
+        </label>
+      </div>
+
+      <div class="form-grid-modal product-form-grid">
+        <div class="stack-form">
+          <label class="subtle">Nombre</label>
+          <input name="name" type="text" value="${escapeHtml(product?.name || '')}" placeholder="Ej: Combo Wok Familiar" required />
+        </div>
+        <div class="stack-form">
+          <label class="subtle">Categoría</label>
+          <input name="category" type="text" value="${escapeHtml(product?.category || 'General')}" placeholder="Ej: Combos" required />
+        </div>
+      </div>
+
+      <div class="form-grid-modal product-form-grid">
+        <div class="stack-form">
+          <label class="subtle">Precio</label>
+          <input name="price" type="number" value="${escapeHtml(product?.price ?? '')}" min="0" step="100" placeholder="0" required />
+        </div>
+        <div class="stack-form">
+          <label class="subtle">Estado visible</label>
+          <select name="active">
+            <option value="1" ${product && Number(product.active) === 1 ? 'selected' : ''}>Activo</option>
+            <option value="0" ${product && Number(product.active) === 0 ? 'selected' : ''}>Inactivo</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="combo-builder" data-combo-builder>
+        <div class="combo-builder-head">
+          <div>
+            <label class="subtle">Ítems incluidos en el combo</label>
+            <div class="combo-helper">Selecciona productos sugeridos o agrega uno personalizado. Se guardará como una lista visual, no como texto libre.</div>
+          </div>
+          <span class="combo-counter" data-combo-count>${comboItems.length} ítem(s)</span>
+        </div>
+
+        <input type="hidden" name="comboItems" value='${escapeHtml(JSON.stringify(comboItems))}' data-combo-input />
+
+        <div class="combo-section">
+          <div class="combo-section-title">Sugeridos del catálogo</div>
+          <div class="combo-chip-grid" data-combo-options>${suggestionMarkup}</div>
+        </div>
+
+        <div class="combo-section">
+          <div class="combo-section-title">Seleccionados</div>
+          <div class="combo-chip-grid selected" data-combo-selected-list>${selectedMarkup}</div>
+        </div>
+
+        <div class="combo-custom-row">
+          <input type="text" data-combo-custom placeholder="Agregar ítem personalizado" />
+          <button type="button" class="btn-secondary" data-combo-add>Agregar</button>
+        </div>
+      </div>
+    </form>
+  `;
+}
+
+function openProductModal(product = null) {
+  const comboSuggestions = dashboardState.products
+    .filter((item) => Number(item.active) === 1)
+    .filter((item) => !parseComboItems(item.combo_items).length)
+    .filter((item) => !product || Number(item.id) !== Number(product.id))
+    .map((item) => item.name);
+
+  showModal({
+    title: product ? 'Editar Producto' : 'Nuevo Producto',
+    body: buildProductModalBody(product, comboSuggestions),
+    confirmText: null,
+    cancelText: 'Cancelar',
+    isWide: true
+  });
+
+  queueMicrotask(() => {
+    const form = document.getElementById('productForm');
+    if (!form) {
+      return;
+    }
+
+    const comboToggle = form.querySelector('[name="isCombo"]');
+    const comboInput = form.querySelector('[data-combo-input]');
+    const selectedList = form.querySelector('[data-combo-selected-list]');
+    const optionsList = form.querySelector('[data-combo-options]');
+    const countBadge = form.querySelector('[data-combo-count]');
+    const customInput = form.querySelector('[data-combo-custom]');
+    const addButton = form.querySelector('[data-combo-add]');
+
+    const setComboItems = (items) => {
+      const uniqueItems = items.map((item) => String(item).trim()).filter(Boolean).filter((item, index, array) => array.indexOf(item) === index);
+      comboInput.value = JSON.stringify(uniqueItems);
+      countBadge.textContent = `${uniqueItems.length} ítem(s)`;
+
+      if (!uniqueItems.length) {
+        selectedList.innerHTML = '<div class="combo-empty">Aún no hay ítems seleccionados.</div>';
+      } else {
+        selectedList.innerHTML = uniqueItems.map((item) => `
+          <button type="button" class="combo-chip selected" data-combo-selected="${escapeHtml(item)}">
+            ${escapeHtml(item)}<span>×</span>
+          </button>
+        `).join('');
+      }
+
+      const selectedSet = new Set(uniqueItems);
+      optionsList.querySelectorAll('[data-combo-option]').forEach((button) => {
+        button.classList.toggle('is-selected', selectedSet.has(button.dataset.comboOption));
+        button.disabled = selectedSet.has(button.dataset.comboOption);
+      });
+    };
+
+    setComboItems(parseComboItems(comboInput.value));
+
+    const syncComboVisibility = () => {
+      const enabled = comboToggle.checked;
+      form.querySelector('[data-combo-builder]').classList.toggle('is-disabled', !enabled);
+      form.querySelectorAll('[data-combo-builder] button, [data-combo-builder] input').forEach((node) => {
+        if (node.matches('[name="isCombo"]')) {
+          return;
+        }
+        if (node.matches('[data-combo-input]')) {
+          node.disabled = false;
+          return;
+        }
+        node.disabled = !enabled;
+      });
+      if (!enabled) {
+        comboInput.value = '[]';
+        setComboItems([]);
+      }
+    };
+
+    comboToggle.addEventListener('change', syncComboVisibility);
+
+    optionsList.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-combo-option]');
+      if (!target || target.disabled) {
+        return;
+      }
+      const nextItems = parseComboItems(comboInput.value);
+      nextItems.push(target.dataset.comboOption);
+      setComboItems(nextItems);
+    });
+
+    selectedList.addEventListener('click', (event) => {
+      const target = event.target.closest('[data-combo-selected]');
+      if (!target) {
+        return;
+      }
+      const nextItems = parseComboItems(comboInput.value).filter((item) => item !== target.dataset.comboSelected);
+      setComboItems(nextItems);
+    });
+
+    const addCustomItem = () => {
+      const value = customInput.value.trim();
+      if (!value) {
+        return;
+      }
+      const nextItems = parseComboItems(comboInput.value);
+      nextItems.push(value);
+      setComboItems(nextItems);
+      customInput.value = '';
+      customInput.focus();
+    };
+
+    addButton.addEventListener('click', addCustomItem);
+    customInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        addCustomItem();
+      }
+    });
+
+    syncComboVisibility();
+
+    form.addEventListener('submit', async (submitEvent) => {
+      submitEvent.preventDefault();
+      const data = getFormData(form);
+      const comboItems = data.isCombo === 'on' ? parseComboItems(data.comboItems) : [];
+
+      try {
+        if (product) {
+          await request(`/api/products/${product.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              name: data.name,
+              category: data.category,
+              price: Number(data.price),
+              active: data.active === '1',
+              comboItems
+            })
+          });
+          showToast('Producto actualizado', 'success');
+        } else {
+          await request('/api/products', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: data.name,
+              category: data.category,
+              price: Number(data.price),
+              active: data.active === '1',
+              comboItems
+            })
+          });
+          showToast('Producto creado', 'success');
+        }
+
+        closeModals();
+        await refreshDashboard();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }, { once: true });
+  });
 }
 
 function syncOrderMessage(message, isError = false) {
@@ -859,48 +1450,63 @@ async function main() {
     await loadClients(query);
   });
 
-  document.getElementById('productForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const formData = getFormData(event.currentTarget);
-    await request('/api/products', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: formData.name,
-        category: formData.category,
-        price: formData.price,
-        active: true,
-        comboItems: []
-      })
-    });
-    event.currentTarget.reset();
-    await refreshDashboard();
+  document.getElementById('newProductBtn').addEventListener('click', () => {
+    openProductModal();
   });
 
-  document.getElementById('driverForm').addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const formData = getFormData(event.currentTarget);
-    await request('/api/drivers', {
-      method: 'POST',
-      body: JSON.stringify(formData)
+  document.querySelectorAll('[data-products-filter]').forEach((button) => {
+    button.addEventListener('click', () => {
+      productsViewFilter = button.dataset.productsFilter;
+      renderProducts(dashboardState.products);
     });
-    event.currentTarget.reset();
-    await refreshDashboard();
   });
 
-  document.getElementById('driverForm').addEventListener('click', async (event) => {
+  document.getElementById('openDriverModal').addEventListener('click', () => {
+    openDriverModal();
+  });
+
+  document.getElementById('driversList').addEventListener('click', async (event) => {
     const driverId = event.target.dataset.driverToggle;
-    if (driverId === undefined) {
+    const editId = event.target.dataset.driverEdit;
+    const deleteId = event.target.dataset.driverDelete;
+
+    if (driverId) {
+      const isActivating = event.target.dataset.active === '1';
+      showToast(`Domiciliario ${isActivating ? 'activado' : 'desactivado'}`, 'info');
+
+      await request(`/api/drivers/${driverId}/active`, {
+        method: 'PATCH',
+        body: JSON.stringify({ active: event.target.dataset.active === '1' })
+      });
+      await refreshDashboard();
       return;
     }
-    
-    const isActivating = event.target.dataset.active === '1';
-    showToast(`Domiciliario ${isActivating ? 'activado' : 'desactivado'}`, 'info');
 
-    await request(`/api/drivers/${driverId}/active`, {
-      method: 'PATCH',
-      body: JSON.stringify({ active: event.target.dataset.active === '1' })
-    });
-    await refreshDashboard();
+    if (editId) {
+      const driver = dashboardState.drivers.find((item) => item.id === Number(editId));
+      if (driver) {
+        openDriverModal(driver);
+      }
+      return;
+    }
+
+    if (deleteId) {
+      showModal({
+        title: '¿Eliminar domiciliario?',
+        body: 'Esta acción no se puede deshacer.',
+        confirmText: 'Eliminar',
+        cancelText: 'Cancelar',
+        onConfirm: async () => {
+          try {
+            await request(`/api/drivers/${deleteId}`, { method: 'DELETE' });
+            showToast('Domiciliario eliminado', 'success');
+            await refreshDashboard();
+          } catch (error) {
+            showToast(error.message, 'error');
+          }
+        }
+      });
+    }
   });
 
   // Event listeners para productos
@@ -920,48 +1526,7 @@ async function main() {
     } else if (editId) {
       const product = dashboardState.products.find(p => p.id === Number(editId));
       if (product) {
-        showModal({
-          title: `Editar Producto: ${product.name}`,
-          body: `
-            <form id="editProductForm" class="order-form">
-              <div class="form-grid-modal">
-                <div class="stack-form">
-                  <label class="subtle">Nombre</label>
-                  <input name="name" type="text" value="${product.name}" required />
-                </div>
-                <div class="stack-form">
-                  <label class="subtle">Categoría</label>
-                  <input name="category" type="text" value="${product.category}" />
-                </div>
-              </div>
-              <div class="stack-form" style="margin-top: 10px;">
-                <label class="subtle">Precio</label>
-                <input name="price" type="number" value="${product.price}" min="0" step="100" required />
-              </div>
-            </form>
-          `,
-          confirmText: 'Guardar',
-          cancelText: 'Cancelar',
-          isWide: false,
-          onConfirm: async () => {
-            const form = document.getElementById('editProductForm');
-            const data = getFormData(form);
-            try {
-              await request(`/api/products/${editId}`, {
-                method: 'PATCH',
-                body: JSON.stringify({
-                  name: data.name,
-                  category: data.category,
-                  price: Number(data.price)
-                })
-              });
-              showToast('Producto actualizado', 'success');
-              await refreshDashboard();
-            } catch (err) {
-              showToast(err.message, 'error');
-            }
-          }
-        });
+        openProductModal(product);
       }
     } else if (deleteId) {
       showModal({

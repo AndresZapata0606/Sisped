@@ -324,12 +324,15 @@ async function startServer() {
     const category = String(request.body.category || product.category).trim();
     const price = request.body.price !== undefined ? toNumber(request.body.price) : product.price;
     const active = request.body.active !== undefined ? (request.body.active ? 1 : 0) : product.active;
+    const comboItems = request.body.comboItems !== undefined
+      ? JSON.stringify(Array.isArray(request.body.comboItems) ? request.body.comboItems : [])
+      : product.combo_items;
 
     db.prepare(`
       UPDATE products
-      SET name = ?, category = ?, price = ?, active = ?
+      SET name = ?, category = ?, price = ?, combo_items = ?, active = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(name, category, price, active, id);
+    `).run(name, category, price, comboItems, active, id);
     db.save();
     response.json(db.prepare('SELECT * FROM products WHERE id = ?').get(id));
   });
@@ -369,12 +372,49 @@ async function startServer() {
     response.status(201).json(db.prepare('SELECT * FROM drivers WHERE id = ?').get(result.lastInsertRowid));
   });
 
+  app.patch('/api/drivers/:id', (request, response) => {
+    const id = Number(request.params.id);
+    const driver = db.prepare('SELECT * FROM drivers WHERE id = ?').get(id);
+
+    if (!driver) {
+      return response.status(404).json({ message: 'Domiciliario no encontrado.' });
+    }
+
+    const name = String(request.body.name || driver.name).trim();
+    const phone = request.body.phone !== undefined ? normalizePhone(request.body.phone) : driver.phone;
+    const vehicle = String(request.body.vehicle || driver.vehicle).trim();
+    const zone = String(request.body.zone || driver.zone).trim();
+    const active = request.body.active !== undefined ? (request.body.active ? 1 : 0) : driver.active;
+    const currentStatus = request.body.currentStatus ? String(request.body.currentStatus).trim() : driver.current_status;
+
+    db.prepare(`
+      UPDATE drivers
+      SET name = ?, phone = ?, vehicle = ?, zone = ?, active = ?, current_status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(name, phone, vehicle, zone, active, currentStatus, id);
+    db.save();
+    response.json(db.prepare('SELECT * FROM drivers WHERE id = ?').get(id));
+  });
+
   app.patch('/api/drivers/:id/active', (request, response) => {
     const active = request.body.active ? 1 : 0;
     db.prepare('UPDATE drivers SET active = ?, current_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(active, active ? 'disponible' : 'inactivo', request.params.id);
     db.save(); // Persist changes
     response.json(db.prepare('SELECT * FROM drivers WHERE id = ?').get(request.params.id));
+  });
+
+  app.delete('/api/drivers/:id', (request, response) => {
+    const id = Number(request.params.id);
+    const driver = db.prepare('SELECT * FROM drivers WHERE id = ?').get(id);
+
+    if (!driver) {
+      return response.status(404).json({ message: 'Domiciliario no encontrado.' });
+    }
+
+    db.prepare('DELETE FROM drivers WHERE id = ?').run(id);
+    db.save();
+    response.status(204).send();
   });
 
   app.get('/api/orders', (_request, response) => {

@@ -221,16 +221,16 @@
 
             <section class="panel">
               <div class="panel-header">
-                <h2>Producto</h2>
-                <span>catálogo</span>
+                <h2>Catálogo de productos</h2>
+                <span>combos y precios</span>
               </div>
-              <form id="productForm" class="stack-form">
-                <input name="name" type="text" placeholder="Nombre" required />
-                <input name="category" type="text" placeholder="Categoría" value="General" />
-                <input name="price" type="number" placeholder="Precio" min="0" step="100" required />
-                <button type="submit">Guardar producto</button>
-              </form>
-              <div id="productsList" class="mini-list"></div>
+              <div class="products-filter-bar">
+                <button type="button" class="filter-pill active" data-products-filter="all">Todos</button>
+                <button type="button" class="filter-pill" data-products-filter="individuals">Individuales</button>
+                <button type="button" class="filter-pill" data-products-filter="combos">Combos</button>
+              </div>
+              <button id="newProductBtn" class="btn-primary" style="width: 100%;">+ Nuevo Producto</button>
+              <div id="productsList" class="products-list"></div>
             </section>
           </section>
 
@@ -245,15 +245,10 @@
 
             <section class="panel">
               <div class="panel-header">
-                <h2>Domiciliario</h2>
-                <span>disponibilidad</span>
+                <h2>Gestión de domiciliarios</h2>
+                <span>disponibilidad y turnos</span>
               </div>
-              <form id="driverForm" class="stack-form">
-                <input name="name" type="text" placeholder="Nombre" required />
-                <input name="phone" type="text" placeholder="Teléfono" />
-                <input name="zone" type="text" placeholder="Zona / barrio" />
-                <button type="submit">Agregar domiciliario</button>
-              </form>
+              <button id="openDriverModal" class="btn-primary" style="width: 100%;">+ Nuevo Domiciliario</button>
               <div id="driversList" class="mini-list"></div>
             </section>
           </section>
@@ -281,7 +276,17 @@
                 <input name="cutoffHour" type="number" min="0" max="23" value="20" placeholder="Hora de corte (0-23)" />
                 <button type="submit">Actualizar</button>
               </form>
-              <div id="statsCards" class="stats-cards"></div>
+              <div id="statsSummaryBanner" class="stats-summary-banner"></div>
+              <div class="stats-layout">
+                <section class="stats-card-block">
+                  <div class="section-title">Indicadores del período</div>
+                  <div id="statsCards" class="stats-cards stats-cards-compact"></div>
+                </section>
+                <section class="stats-card-block">
+                  <div class="section-title">Distribución por estado</div>
+                  <div id="statsTrend" class="stats-trend"></div>
+                </section>
+              </div>
             </section>
           </section>
         </div>
