@@ -24,6 +24,19 @@ npm install
 npm start
 ```
 
+## Empaquetado (instalador)
+Instala `electron-builder` y ejecuta:
+
+```bash
+npm run build
+```
+
+Esto generará instaladores en la carpeta `dist/` para la plataforma donde se ejecute.
+
+## Release y versionado
+- Etiqueta la versión y empuja tags: `git tag -a v0.1.0 -m "v0.1.0" && git push --tags`.
+- Crea un Release en GitHub desde la etiqueta `v0.1.0`.
+
 ## Verificacion rapida
 1. Buscar un cliente por nombre o telefono.
 2. Crear un producto.
@@ -40,3 +53,7 @@ npm start
 ## Notas
 - La base se crea y se llena con datos demo al primer arranque.
 - La app corre localmente y no depende de un servidor externo para operar.
+
+## Contribuir
+- Sigue el formato de commits: Conventional Commits.
+- Abre issues o pull requests en el repositorio remoto.

@@ -8,12 +8,32 @@
   "scripts": {
     "start": "electron .",
     "server": "node src/server/app.js",
-    "check": "node --check electron/main.js && node --check src/server/app.js && node --check src/server/db.js && node --check src/renderer/app.js"
+    "check": "node --check electron/main.js && node --check src/server/app.js && node --check src/server/db.js && node --check src/renderer/app.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "build": "electron-builder --publish=never"
   },
   "dependencies": {
     "cors": "^2.8.5",
     "electron": "^35.1.4",
     "express": "^5.1.0",
     "sql.js": "^1.12.0"
+  }
+  ,
+  "devDependencies": {
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.shadday.wok",
+    "productName": "Shadday Wok",
+    "files": ["**/*", "!node_modules/*/.cache"],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "target": ["nsis"],
+      "icon": "build/icon.ico"
+    }
   }
 }

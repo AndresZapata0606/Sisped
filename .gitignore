@@ -5,3 +5,11 @@ data/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+dist/
+out/
+.cache/
+.vscode/
+*.sqlite
+*.wasm
+build/
+.env
