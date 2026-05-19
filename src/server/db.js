@@ -167,6 +167,8 @@ async function createSqlDatabase() {
       total REAL NOT NULL DEFAULT 0,
       route_zone TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      picked_up_at TEXT,
+      delivered_at TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (client_id) REFERENCES clients(id),
       FOREIGN KEY (driver_id) REFERENCES drivers(id)

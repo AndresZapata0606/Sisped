@@ -12,27 +12,37 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function getRangeBounds(range) {
-  const end = new Date();
-  const start = new Date(end);
+function getRangeBounds(range, cutoffHour = 0) { // Default to 0 for safety, will be passed from client
+  const now = new Date();
+  const end = new Date(now); // 'end' is always the current moment
+
+  const start = new Date(now);
 
   if (range === 'week') {
     start.setDate(start.getDate() - 7);
+    start.setHours(0, 0, 0, 0); // Start of the day 7 days ago
   } else if (range === 'month') {
     start.setMonth(start.getMonth() - 1);
-  } else {
-    start.setDate(start.getDate() - 1);
+    start.setDate(1); // Start of the month 1 month ago
+    start.setHours(0, 0, 0, 0);
+  } else { // 'day'
+    // If current hour is before cutoff, the "day" started on the previous calendar day at cutoffHour.
+    // If current hour is at or after cutoff, the "day" started on the current calendar day at cutoffHour.
+    if (now.getHours() < cutoffHour) {
+      start.setDate(now.getDate() - 1); // Go to previous day
+    }
+    start.setHours(cutoffHour, 0, 0, 0); // Set to cutoff hour
   }
 
   return {
-    start: start.toISOString(),
-    end: end.toISOString()
+    start: start.toISOString().slice(0, 19).replace('T', ' '),
+    end: end.toISOString().slice(0, 19).replace('T', ' ')
   };
 }
 
-function buildStats(db, range) {
-  const { start, end } = getRangeBounds(range);
-  const query = db.prepare(`
+function buildStats(db, range, cutoffHour = 0) { // Add cutoffHour parameter with default
+  const { start, end } = getRangeBounds(range, cutoffHour); // Pass cutoffHour
+  const mainQuery = db.prepare(`
     SELECT
       COUNT(*) AS total_orders,
       SUM(CASE WHEN status = 'entregado' THEN 1 ELSE 0 END) AS delivered_orders,
@@ -41,6 +51,15 @@ function buildStats(db, range) {
       COALESCE(AVG(total), 0) AS average_ticket
     FROM orders
     WHERE datetime(created_at) BETWEEN datetime(?) AND datetime(?)
+  `).get(start, end);
+
+  // Query para el tiempo promedio de entrega, solo para pedidos con tiempos de recogida y entrega registrados
+  const deliveryTimeQuery = db.prepare(`
+    SELECT
+      COALESCE(AVG(JULIANDAY(delivered_at) - JULIANDAY(picked_up_at)) * 24 * 60, 0) AS average_delivery_time_minutes
+    FROM orders
+    WHERE datetime(created_at) BETWEEN datetime(?) AND datetime(?)
+    AND picked_up_at IS NOT NULL AND delivered_at IS NOT NULL
   `).get(start, end);
 
   const productQuery = db.prepare(`
@@ -67,12 +86,13 @@ function buildStats(db, range) {
   return {
     range,
     start,
-    end,
-    totalOrders: query.total_orders || 0,
-    deliveredOrders: query.delivered_orders || 0,
-    cancelledOrders: query.cancelled_orders || 0,
-    totalSales: query.total_sales || 0,
-    averageTicket: query.average_ticket || 0,
+    end, // Asegúrate de que 'end' también se formatee correctamente si se usa en la UI
+    totalOrders: mainQuery.total_orders || 0,
+    deliveredOrders: mainQuery.delivered_orders || 0,
+    cancelledOrders: mainQuery.cancelled_orders || 0,
+    totalSales: mainQuery.total_sales || 0,
+    averageTicket: mainQuery.average_ticket || 0,
+    averageDeliveryTimeMinutes: deliveryTimeQuery.average_delivery_time_minutes || 0,
     topProduct: productQuery ? productQuery.name : 'Sin datos',
     topDriver: driverQuery ? driverQuery.name : 'Sin datos'
   };
@@ -404,6 +424,33 @@ async function startServer() {
     }
   });
 
+  app.patch('/api/orders/:id/status', (request, response) => {
+    const orderId = request.params.id;
+    const newStatus = String(request.body.status || '').toLowerCase();
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+    let updateSql = 'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP';
+    const params = [newStatus];
+
+    if (newStatus === 'en ruta') {
+      updateSql += ', picked_up_at = ?';
+      params.push(now);
+    } else if (newStatus === 'entregado') {
+      updateSql += ', delivered_at = ?';
+      params.push(now);
+    } else if (newStatus === 'cancelado') {
+      const cancelledReason = String(request.body.cancelledReason || '').trim();
+      updateSql += ', cancelled_reason = ?';
+      params.push(cancelledReason);
+    }
+
+    updateSql += ' WHERE id = ?';
+    params.push(orderId);
+
+    db.prepare(updateSql).run(params);
+    response.json(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId));
+  });
+
   app.get('/api/routes/suggest', (request, response) => {
     const driverId = request.query.driverId ? Number(request.query.driverId) : null;
     const orders = db.prepare(`
@@ -434,7 +481,8 @@ async function startServer() {
     const range = ['day', 'week', 'month'].includes(String(request.query.range || 'day'))
       ? String(request.query.range || 'day')
       : 'day';
-    response.json(buildStats(db, range));
+    const cutoffHour = toNumber(request.query.cutoffHour || 0); // Get cutoffHour from query parameter
+    response.json(buildStats(db, range, cutoffHour)); // Pass cutoffHour to buildStats
   });
 
   app.get(/.*/, (_request, response) => {

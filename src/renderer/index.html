@@ -84,7 +84,27 @@
                 <strong id="kpiProducts">0</strong>
                 <p>Catálogo listo para la comanda.</p>
               </article>
-            </section>
+              <article class="kpi-card">
+                <span>Pedidos entregados</span>
+                <strong id="kpiDeliveredOrders">0</strong>
+                <p>Pedidos completados en el rango.</p>
+              </article>
+              <article class="kpi-card">
+                <span>Pedidos cancelados</span>
+                <strong id="kpiCancelledOrders">0</strong>
+                <p>Pedidos que no se pudieron entregar.</p>
+              </article>
+              <article class="kpi-card accent">
+                <span>Ticket promedio</span>
+                <strong id="kpiAverageTicket">$0</strong>
+                <p>Valor promedio por pedido.</p>
+              </article>
+              <article class="kpi-card">
+                <span>Tiempo promedio entrega</span>
+                <strong id="kpiAverageDeliveryTime">0 min</strong>
+                <p>Desde recogida hasta entrega.</p>
+              </article>
+               </section>
 
             <section class="insight-grid">
               <article class="insight-card">
@@ -97,6 +117,18 @@
                 <div class="insight-foot">
                   <span id="topClientOrders">0 pedidos</span>
                   <span id="topClientTotal">$0 total</span>
+                </div>
+              </article>
+              <article class="insight-card">
+                <div class="insight-head">
+                  <span>Producto más vendido</span>
+                  <span class="insight-chip">Top producto</span>
+                </div>
+                <strong id="topProductName">Sin datos</strong>
+                <p id="topProductMeta">El producto con más ventas en el rango.</p>
+                <div class="insight-foot">
+                  <span id="topProductCount">0 unidades</span>
+                </div>
                 </div>
               </article>
               <article class="insight-card highlight">
@@ -184,6 +216,7 @@
 
                 <div class="inline-actions">
                   <button type="submit" class="primary">Crear comanda</button>
+                  <button type="button" id="clearOrderForm">Limpiar</button>
                   <div id="orderMessage" class="message"></div>
                 </div>
               </form>
@@ -280,6 +313,7 @@
                   <option value="week">Semana</option>
                   <option value="month">Mes</option>
                 </select>
+                <input name="cutoffHour" type="number" min="0" max="23" value="20" placeholder="Hora de corte (0-23)" />
                 <button type="submit">Actualizar</button>
               </form>
               <div id="statsCards" class="stats-cards"></div>

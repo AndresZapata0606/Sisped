@@ -204,6 +204,12 @@ body {
   box-shadow: var(--shadow);
   display: grid;
   gap: 10px;
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+.insight-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.45);
 }
 
 .insight-card.highlight {
@@ -283,6 +289,12 @@ body {
   background: linear-gradient(180deg, rgba(15, 23, 42, 0.82), rgba(9, 17, 32, 0.92));
   border: 1px solid rgba(148, 163, 184, 0.16);
   box-shadow: var(--shadow);
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+.kpi-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 25px 70px rgba(0, 0, 0, 0.45);
 }
 
 .kpi-card.accent {

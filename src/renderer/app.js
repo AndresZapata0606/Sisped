@@ -132,13 +132,25 @@ function renderPendingItems() {
     return;
   }
 
-  container.innerHTML = pendingItems.map((item, index) => `
+  const total = pendingItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+
+  const itemsHtml = pendingItems.map((item, index) => `
     <div class="row">
-      <strong>${item.name}</strong>
+      <div style="flex: 1;">
+        <strong>${item.name}</strong>
+        ${item.isCombo ? `<div class="subtle" style="font-size: 0.75rem; margin-top: 2px;">📦 Incluye: ${item.comboInfo}</div>` : ''}
+      </div>
       <div class="meta">Cantidad: ${item.quantity} · ${money(item.unitPrice)} · ${money(item.quantity * item.unitPrice)}</div>
       <button type="button" data-item-remove="${index}">Quitar</button>
     </div>
   `).join('');
+
+  container.innerHTML = itemsHtml + `
+    <div class="row" style="border-top: 2px solid var(--accent); margin-top: 10px; background: rgba(245, 158, 11, 0.05);">
+      <strong>Total de la comanda</strong>
+      <div class="meta" style="font-size: 1.2rem; color: var(--accent); font-weight: bold;">${money(total)}</div>
+    </div>
+  `;
 }
 
 function renderOrders(orders) {
@@ -164,6 +176,16 @@ function renderOrders(orders) {
         <div class="tag-row" style="margin-top:8px;">
           <span class="tag">${money(order.total)}</span>
           <span class="tag ${statusClass}">${order.status}</span>
+        </div>
+        <div class="order-actions" style="margin-top: 8px;">
+          <select class="status-changer" data-order-id="${order.id}">
+            <option value="nuevo" ${order.status === 'nuevo' ? 'selected' : ''}>Nuevo</option>
+            <option value="en preparación" ${order.status === 'en preparación' ? 'selected' : ''}>En preparación</option>
+            <option value="listo para salir" ${order.status === 'listo para salir' ? 'selected' : ''}>Listo para salir</option>
+            <option value="en ruta" ${order.status === 'en ruta' ? 'selected' : ''}>En ruta</option>
+            <option value="entregado" ${order.status === 'entregado' ? 'selected' : ''}>Entregado</option>
+            <option value="cancelado" ${order.status === 'cancelado' ? 'selected' : ''}>Cancelado</option>
+          </select>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
@@ -222,6 +244,7 @@ function renderStats(stats) {
     <div class="stat"><strong>${stats.deliveredOrders}</strong><span>Pedidos entregados</span></div>
     <div class="stat"><strong>${stats.cancelledOrders}</strong><span>Pedidos cancelados</span></div>
     <div class="stat"><strong>${money(stats.totalSales)}</strong><span>Ventas totales</span></div>
+    <div class="stat"><strong>${stats.averageDeliveryTimeMinutes.toFixed(0)} min</strong><span>Tiempo promedio entrega</span></div>
     <div class="stat"><strong>${money(stats.averageTicket)}</strong><span>Ticket promedio</span></div>
     <div class="stat"><strong>${stats.topProduct}</strong><span>Producto mas vendido</span></div>
     <div class="stat"><strong>${stats.topDriver}</strong><span>Domiciliario lider</span></div>
@@ -238,6 +261,10 @@ function renderOverviewKpis() {
   document.getElementById('kpiSales').textContent = stats ? money(stats.totalSales) : money(0);
   document.getElementById('kpiDrivers').textContent = String(activeDrivers);
   document.getElementById('kpiProducts').textContent = String(activeProducts);
+  document.getElementById('kpiDeliveredOrders').textContent = stats ? String(stats.deliveredOrders) : '0';
+  document.getElementById('kpiCancelledOrders').textContent = stats ? String(stats.cancelledOrders) : '0';
+  document.getElementById('kpiAverageTicket').textContent = stats ? money(stats.averageTicket) : money(0);
+  document.getElementById('kpiAverageDeliveryTime').textContent = stats ? `${stats.averageDeliveryTimeMinutes.toFixed(0)} min` : '0 min';
   document.getElementById('overviewStatusText').textContent = `${orders.length} pedidos cargados`;
 }
 
@@ -339,6 +366,10 @@ function renderOverviewInsights() {
   document.getElementById('topDriverOrders').textContent = topDriver ? `${topDriver.total} pedidos` : '0 pedidos';
   document.getElementById('topDriverZone').textContent = topDriver ? topDriver.zone : 'Sin zona';
 
+  document.getElementById('topProductName').textContent = stats ? stats.topProduct : 'Sin datos';
+  document.getElementById('topProductMeta').textContent = stats && stats.topProduct !== 'Sin datos' ? `El producto más vendido en el rango.` : 'Todavía no hay suficiente historial.';
+  document.getElementById('topProductCount').textContent = stats && stats.topProduct !== 'Sin datos' ? `${stats.topProductCount || 0} unidades` : '0 unidades'; // Assuming topProductCount is available in stats
+
   document.getElementById('topStatusName').textContent = topStatus[0];
   document.getElementById('topStatusMeta').textContent = `${topStatus[1]} pedidos dentro del estado dominante.`;
   document.getElementById('topStatusCount').textContent = `${topStatus[1]} pedidos`;
@@ -346,11 +377,13 @@ function renderOverviewInsights() {
 }
 
 async function refreshDashboard() {
+  const cutoffHour = document.querySelector('#statsForm [name="cutoffHour"]')?.value || 20;
+  
   const [products, drivers, orders, stats] = await Promise.all([
     request('/api/products'),
     request('/api/drivers'),
     request('/api/orders'),
-    request('/api/stats?range=day')
+    request(`/api/stats?range=day&cutoffHour=${cutoffHour}`)
   ]);
 
   dashboardState.products = products;
@@ -381,6 +414,42 @@ function syncOrderMessage(message, isError = false) {
 
 async function main() {
   wireSidebarNavigation();
+
+  // Auto-completado de cliente por teléfono en la Comanda
+  const orderPhoneInput = document.querySelector('#orderForm [name="phone"]');
+  orderPhoneInput.addEventListener('blur', async () => {
+    const phone = orderPhoneInput.value.trim();
+    const nameInput = document.querySelector('#orderForm [name="name"]');
+    const currentNameInput = nameInput.value.trim();
+
+    if (phone.length >= 7) {
+      try {
+        const clients = await request(`/api/clients?q=${encodeURIComponent(phone)}`);
+        const normalizedPhone = phone.replace(/\D/g, '');
+        const existing = clients.find(c => c.phone.replace(/\D/g, '') === normalizedPhone);
+
+        if (existing) {
+          // Regla: Confirmación manual si el nombre ingresado difiere del registrado
+          if (currentNameInput && currentNameInput.toLowerCase() !== existing.name.toLowerCase()) {
+            const confirmed = confirm(`El teléfono ${phone} está registrado a nombre de "${existing.name}". ¿Deseas usar los datos de este cliente?`);
+            if (!confirmed) return;
+          }
+
+          const form = document.getElementById('orderForm');
+          nameInput.value = existing.name;
+          
+          if (existing.primaryAddress) {
+            form.querySelector('[name="address"]').value = existing.primaryAddress.address;
+            form.querySelector('[name="barrio"]').value = existing.primaryAddress.barrio;
+            form.querySelector('[name="reference"]').value = existing.primaryAddress.reference;
+          }
+          syncOrderMessage(`Cliente frecuente detectado: ${existing.name}`);
+        }
+      } catch (e) {
+        console.error('Error al buscar cliente para auto-completado', e);
+      }
+    }
+  });
 
   document.getElementById('clientSearchForm').addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -429,9 +498,29 @@ async function main() {
     const text = option.textContent.split(' - ');
     const name = text[0];
     const unitPrice = Number(String(text[1] || '0').replace(/[^0-9]/g, '')) || 0;
-    pendingItems.push({ productId, quantity, name, unitPrice });
+
+    // Buscar info adicional del producto (como si es combo)
+    const productInfo = dashboardState.products.find(p => p.id === productId);
+    const comboItems = productInfo?.combo_items ? JSON.parse(productInfo.combo_items) : [];
+
+    pendingItems.push({ 
+      productId, 
+      quantity, 
+      name, 
+      unitPrice,
+      isCombo: comboItems.length > 0,
+      comboInfo: comboItems.join(', ')
+    });
+
     quantityInput.value = 1;
     renderPendingItems();
+  });
+
+  document.getElementById('clearOrderForm').addEventListener('click', () => {
+    document.getElementById('orderForm').reset();
+    pendingItems.length = 0;
+    renderPendingItems();
+    syncOrderMessage('Formulario de comanda reiniciado.');
   });
 
   document.getElementById('pendingItems').addEventListener('click', (event) => {
@@ -492,10 +581,28 @@ async function main() {
   document.getElementById('statsForm').addEventListener('submit', async (event) => {
     event.preventDefault();
     const formData = getFormData(event.currentTarget);
-    const stats = await request(`/api/stats?range=${encodeURIComponent(formData.range)}`);
+    const cutoffHour = formData.cutoffHour || 20; // Get cutoffHour from form, default to 20
+    const stats = await request(`/api/stats?range=${encodeURIComponent(formData.range)}&cutoffHour=${encodeURIComponent(cutoffHour)}`);
     renderStats(stats);
   });
 
+  // Event listener for order status changes
+  document.getElementById('ordersList').addEventListener('change', async (event) => {
+    if (event.target.classList.contains('status-changer')) {
+      const orderId = event.target.dataset.orderId;
+      const newStatus = event.target.value;
+      try {
+        await request(`/api/orders/${orderId}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: newStatus })
+        });
+        await refreshDashboard(); // Refresh to show updated status and stats
+      } catch (error) {
+        console.error('Error al actualizar estado del pedido:', error);
+        alert('Error al actualizar estado del pedido: ' + error.message); // Simple alert for now
+      }
+    }
+  });
   await loadClients('');
   await refreshDashboard();
 }
