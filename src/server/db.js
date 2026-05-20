@@ -202,6 +202,23 @@ async function createSqlDatabase() {
     );
   `);
 
+  // Asegurar columnas de lat/lng en tablas existentes (para migraciones en caliente)
+  try {
+    db.exec(`ALTER TABLE client_addresses ADD COLUMN latitude REAL;`);
+  } catch (e) { /* columna ya existe o no soportado */ }
+
+  try {
+    db.exec(`ALTER TABLE client_addresses ADD COLUMN longitude REAL;`);
+  } catch (e) { /* columna ya existe o no soportado */ }
+
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN latitude REAL;`);
+  } catch (e) { /* columna ya existe o no soportado */ }
+
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN longitude REAL;`);
+  } catch (e) { /* columna ya existe o no soportado */ }
+
   const productCount = db.prepare('SELECT COUNT(*) AS total FROM products').get();
   if ((productCount && Number(productCount.total)) === 0) {
     db.transaction(() => { // Wrap demo data insertion in a transaction

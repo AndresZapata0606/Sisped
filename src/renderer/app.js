@@ -3,6 +3,9 @@ const pendingItems = [];
 let productsViewFilter = 'all';
 let routeMapInstance = null;
 let routeLayerGroup = null;
+let googleMapInstance = null;
+let googleMarkers = [];
+let googlePolyline = null;
 const dashboardState = {
   products: [],
   drivers: [],
@@ -28,6 +31,16 @@ function hashString(value) {
 }
 
 function getRouteCoordinate(order, index = 0) {
+  // Si el pedido tiene coordenadas precisas y válidas, úsalas
+  if (order && order.latitude != null && order.longitude != null) {
+    const lat = Number(order.latitude);
+    const lon = Number(order.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) > 0.0001 && Math.abs(lon) > 0.0001) {
+      return [lat, lon];
+    }
+  }
+
+  // Fallback heurístico por barrio
   const key = String(order.barrio || order.route_zone || '').toLowerCase().trim();
   const base = caliNeighborhoodCenters[key] || [3.4516, -76.5320];
   const offsetSeed = hashString(`${order.address || ''}-${order.id}-${index}`);
@@ -1001,14 +1014,25 @@ function renderRoutes(routeSuggestion, drivers) {
       : '<div class="product-group-empty">No hay pedidos listos para enrutar.</div>';
   }
 
-  if (!mapContainer || typeof window.L === 'undefined') {
+  if (!mapContainer) return;
+
+  // Si Google Maps está cargado, delegar el render a Google
+  if (window.google && window.google.maps) {
+    try {
+      renderRoutesGoogle(routeSuggestion);
+    } catch (err) {
+      console.error('Error rendering with Google Maps:', err);
+    }
     return;
   }
 
+  if (typeof window.L === 'undefined') return;
+
   if (!routeMapInstance) {
     routeMapInstance = window.L.map('routeMap', { zoomControl: true }).setView([3.4516, -76.5320], 12);
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors'
+    window.L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+      maxZoom: 19
     }).addTo(routeMapInstance);
     routeLayerGroup = window.L.layerGroup().addTo(routeMapInstance);
   }
@@ -1027,8 +1051,10 @@ function renderRoutes(routeSuggestion, drivers) {
   }));
 
   const polylinePoints = routePoints.map((point) => point.coordinates);
+  // Filtrar puntos inválidos
+  const validRoutePoints = routePoints.filter(p => Array.isArray(p.coordinates) && p.coordinates.length === 2 && Number.isFinite(p.coordinates[0]) && Number.isFinite(p.coordinates[1]));
 
-  routePoints.forEach((point, index) => {
+  validRoutePoints.forEach((point, index) => {
     window.L.circleMarker(point.coordinates, {
       radius: 10,
       color: index === 0 ? '#f59e0b' : '#60a5fa',
@@ -1042,13 +1068,133 @@ function renderRoutes(routeSuggestion, drivers) {
     `);
   });
 
-  window.L.polyline(polylinePoints, {
-    color: '#f59e0b',
-    weight: 4,
-    opacity: 0.8
-  }).addTo(routeLayerGroup);
+  if (validRoutePoints.length) {
+    // Si la sugerencia incluye una geometría (GeoJSON) preferirla
+    if (routeSuggestion && routeSuggestion.geometry && routeSuggestion.geometry.coordinates) {
+      try {
+        const geo = window.L.geoJSON(routeSuggestion.geometry, { style: { color: '#f59e0b', weight: 4, opacity: 0.8 } }).addTo(routeLayerGroup);
+        routeMapInstance.fitBounds(geo.getBounds(), { padding: [30, 30] });
+      } catch (e) {
+        const polylinePointsValid = validRoutePoints.map(p => p.coordinates);
+        window.L.polyline(polylinePointsValid, { color: '#f59e0b', weight: 4, opacity: 0.8 }).addTo(routeLayerGroup);
+        if (polylinePointsValid.length === 1) routeMapInstance.setView(polylinePointsValid[0], 14);
+        else routeMapInstance.fitBounds(polylinePointsValid, { padding: [30, 30] });
+      }
+    } else {
+      const polylinePointsValid = validRoutePoints.map(p => p.coordinates);
+      window.L.polyline(polylinePointsValid, { color: '#f59e0b', weight: 4, opacity: 0.8 }).addTo(routeLayerGroup);
 
-  routeMapInstance.fitBounds(polylinePoints, { padding: [30, 30] });
+      if (polylinePointsValid.length === 1) {
+        routeMapInstance.setView(polylinePointsValid[0], 14);
+      } else {
+        routeMapInstance.fitBounds(polylinePointsValid, { padding: [30, 30] });
+      }
+    }
+
+    if (polylinePointsValid.length === 1) {
+      routeMapInstance.setView(polylinePointsValid[0], 14);
+    } else {
+      routeMapInstance.fitBounds(polylinePointsValid, { padding: [30, 30] });
+    }
+  } else {
+    // No hay puntos válidos, centrar en la ciudad
+    routeMapInstance.setView([3.4516, -76.5320], 12);
+  }
+}
+
+// --- Google Maps helpers ---
+function loadGoogleMapsSdk(apiKey) {
+  return new Promise((resolve, reject) => {
+    if (!apiKey) return reject(new Error('API key vacía'));
+    if (window.google && window.google.maps) return resolve(window.google.maps);
+    const scriptId = 'google-maps-sdk';
+    if (document.getElementById(scriptId)) {
+      const check = setInterval(() => {
+        if (window.google && window.google.maps) {
+          clearInterval(check);
+          resolve(window.google.maps);
+        }
+      }, 200);
+      setTimeout(() => { clearInterval(check); reject(new Error('Timeout cargando Google Maps')); }, 10000);
+      return;
+    }
+    const s = document.createElement('script');
+    s.id = scriptId;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+    s.async = true;
+    s.defer = true;
+    s.onload = () => {
+      if (window.google && window.google.maps) resolve(window.google.maps);
+      else reject(new Error('SDK cargado pero google.maps no disponible'));
+    };
+    s.onerror = () => reject(new Error('Error cargando Google Maps SDK'));
+    document.head.appendChild(s);
+  });
+}
+
+function renderRoutesGoogle(routeSuggestion) {
+  const mapEl = document.getElementById('routeMap');
+  if (!mapEl || !window.google || !window.google.maps) return;
+
+  if (!googleMapInstance) {
+    googleMapInstance = new window.google.maps.Map(mapEl, {
+      center: { lat: 3.4516, lng: -76.5320 },
+      zoom: 12
+    });
+  }
+
+  // limpiar previos
+  googleMarkers.forEach(m => m.setMap(null));
+  googleMarkers = [];
+  if (googlePolyline) { googlePolyline.setMap(null); googlePolyline = null; }
+
+  const sequence = Array.isArray(routeSuggestion?.sequence) ? routeSuggestion.sequence : [];
+  const points = sequence.map((order, idx) => ({ order, coord: getRouteCoordinate(order, idx) }))
+    .filter(p => Array.isArray(p.coord) && p.coord.length === 2 && Number.isFinite(p.coord[0]));
+
+  if (!points.length) {
+    googleMapInstance.setCenter({ lat: 3.4516, lng: -76.5320 });
+    googleMapInstance.setZoom(12);
+    return;
+  }
+
+  // If a geometry is provided in routeSuggestion, use it for the polyline path
+  let path;
+  if (routeSuggestion && routeSuggestion.geometry && Array.isArray(routeSuggestion.geometry.coordinates) && routeSuggestion.geometry.coordinates.length) {
+    path = routeSuggestion.geometry.coordinates.map(c => ({ lat: c[1], lng: c[0] }));
+  } else {
+    path = points.map(p => ({ lat: p.coord[0], lng: p.coord[1] }));
+  }
+
+  points.forEach((p, i) => {
+    const position = { lat: p.coord[0], lng: p.coord[1] };
+    const info = new window.google.maps.InfoWindow({ content: `<strong>${escapeHtml(p.order.client_name || `Pedido #${p.order.id}`)}</strong><br/>${escapeHtml(p.order.barrio || '')}` });
+
+    // Preferir AdvancedMarkerElement si está disponible (recomendado por Google)
+    if (window.google.maps.marker && window.google.maps.marker.AdvancedMarkerElement) {
+      const contentEl = document.createElement('div');
+      contentEl.className = 'advanced-marker';
+      contentEl.textContent = `${i + 1}`;
+      const adv = new window.google.maps.marker.AdvancedMarkerElement({ position, map: googleMapInstance, title: p.order.client_name || `Pedido #${p.order.id}`, content: contentEl });
+      adv.addListener('click', () => info.open({ anchor: adv }));
+      googleMarkers.push(adv);
+    } else {
+      const marker = new window.google.maps.Marker({ position, map: googleMapInstance, label: `${i + 1}` });
+      marker.addListener('click', () => info.open(googleMapInstance, marker));
+      googleMarkers.push(marker);
+    }
+  });
+
+  googlePolyline = new window.google.maps.Polyline({ path, strokeColor: '#f59e0b', strokeWeight: 4, map: googleMapInstance });
+
+  if (path.length === 1) {
+    googleMapInstance.setCenter(path[0]);
+    googleMapInstance.setZoom(14);
+  } else {
+    const bounds = new window.google.maps.LatLngBounds();
+    path.forEach(p => bounds.extend(p));
+    googleMapInstance.fitBounds(bounds);
+  }
 }
 
 function getFormData(form) {
@@ -1622,6 +1768,40 @@ async function main() {
     await refreshDashboard();
   });
 
+  const useGoogleBtn = document.getElementById('useGoogleBtn');
+  if (useGoogleBtn) {
+    useGoogleBtn.addEventListener('click', async () => {
+      const keyInput = document.getElementById('googleApiKeyInput');
+      const key = keyInput ? keyInput.value.trim() : '';
+      if (!key) {
+        showToast('Pega tu Google Maps API Key en el campo.', 'error');
+        return;
+      }
+      try {
+        showToast('Cargando Google Maps SDK...', 'info');
+        await loadGoogleMapsSdk(key);
+        localStorage.setItem('googleMapsApiKey', key);
+        showToast('Google Maps activado. Actualiza el mapa.', 'success');
+        await refreshDashboard();
+      } catch (err) {
+        console.error('Error cargando Google Maps:', err);
+        showToast('No se pudo cargar Google Maps. Revisa la clave y la conexión.', 'error');
+      }
+    });
+  }
+
+  // Auto-cargar Google Maps si hay una API key guardada
+  try {
+    const savedKey = localStorage.getItem('googleMapsApiKey');
+    if (savedKey) {
+      showToast('Detectada API Key. Cargando Google Maps...', 'info');
+      await loadGoogleMapsSdk(savedKey);
+      showToast('Google Maps activado automáticamente.', 'success');
+    }
+  } catch (err) {
+    console.warn('No fue posible auto-cargar Google Maps:', err);
+  }
+
   // Handler para asignar la ruta sugerida al domiciliario seleccionado
   const assignBtn = document.getElementById('assignRouteBtn');
   if (assignBtn) {
@@ -1642,10 +1822,29 @@ async function main() {
 
       assignBtn.disabled = true;
       try {
-        const orderIds = sequence.map(o => o.id).filter(Boolean);
+        // Preparar puntos para optimizar (id + lat/lon)
+        const points = sequence.map((o, idx) => {
+          const coord = getRouteCoordinate(o, idx) || [];
+          return { id: o.id, latitude: Number(o.latitude ?? coord[0] ?? 0), longitude: Number(o.longitude ?? coord[1] ?? 0) };
+        }).filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
+
+        let finalSequence = sequence;
+        try {
+          const depot = { latitude: 3.4516, longitude: -76.5320 };
+          const opt = await request('/api/routes/optimize', { method: 'POST', body: JSON.stringify({ points, depot }) });
+          if (opt && Array.isArray(opt.sequence) && opt.sequence.length) {
+            const optimizedIds = opt.sequence.map(p => p.id).filter(id => id !== 'depot');
+            const optimizedOrders = optimizedIds.map(id => sequence.find(s => String(s.id) === String(id))).filter(Boolean);
+            if (optimizedOrders.length) finalSequence = optimizedOrders;
+          }
+        } catch (optErr) {
+          console.warn('No se pudo optimizar vía OSRM, usando secuencia original.', optErr);
+        }
+
+        const orderIds = finalSequence.map(o => o.id).filter(Boolean);
         await request('/api/routes/assign', {
           method: 'POST',
-          body: JSON.stringify({ driverId, orderIds, route: sequence })
+          body: JSON.stringify({ driverId, orderIds, route: finalSequence })
         });
         showToast('Ruta asignada correctamente.', 'success');
         await refreshDashboard();
@@ -1654,6 +1853,65 @@ async function main() {
         showToast(err.message || 'Error al asignar la ruta.', 'error');
       } finally {
         assignBtn.disabled = false;
+      }
+    });
+  }
+
+  // Handler para previsualizar la secuencia optimizada sin asignar
+  const previewBtn = document.getElementById('previewOptimizeBtn');
+  if (previewBtn) {
+    previewBtn.addEventListener('click', async () => {
+      const sequence = Array.isArray(dashboardState.routeSuggestion?.sequence) ? dashboardState.routeSuggestion.sequence : [];
+      if (!sequence.length) {
+        showToast('No hay pedidos en la secuencia para optimizar.', 'error');
+        return;
+      }
+
+      previewBtn.disabled = true;
+      try {
+        // Preparar puntos para optimizar (id + lat/lon)
+        const points = sequence.map((o, idx) => {
+          const coord = getRouteCoordinate(o, idx) || [];
+          return { id: o.id, latitude: Number(o.latitude ?? coord[0] ?? 0), longitude: Number(o.longitude ?? coord[1] ?? 0) };
+        }).filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
+
+        if (!points.length) {
+          showToast('No se pudieron obtener coordenadas válidas para los pedidos.', 'error');
+          return;
+        }
+
+        const depot = { latitude: 3.4516, longitude: -76.5320 };
+        const opt = await request('/api/routes/optimize', { method: 'POST', body: JSON.stringify({ points, depot }) });
+
+        if (!opt || !Array.isArray(opt.sequence)) {
+          showToast('No se obtuvo una secuencia optimizada.', 'error');
+          return;
+        }
+
+        // Mapear secuencia optimizada a objetos de pedido actuales, preservando lat/lon retornados por OSRM
+        const optimizedOrders = opt.sequence.map((item) => {
+          if (item.id === 'depot') return null;
+          const found = sequence.find(s => String(s.id) === String(item.id));
+          if (!found) return null;
+          return Object.assign({}, found, { latitude: item.latitude ?? item.lat ?? found.latitude, longitude: item.longitude ?? item.lon ?? found.longitude });
+        }).filter(Boolean);
+
+        const previewSuggestion = Object.assign({}, dashboardState.routeSuggestion || {}, { sequence: optimizedOrders });
+        if (opt.geometry) previewSuggestion.geometry = opt.geometry;
+
+        // Actualizar indicadores de distancia/eta si vienen
+        const distanceNode = document.getElementById('routeDistance');
+        const etaNode = document.getElementById('routeEta');
+        if (distanceNode && opt.distanceKm != null) distanceNode.textContent = `${(opt.distanceKm).toFixed(1)} km`;
+        if (etaNode && opt.durationMin != null) etaNode.textContent = `${opt.durationMin} min`;
+
+        renderRoutes(previewSuggestion, dashboardState.drivers);
+        showToast('Previsualización optimizada cargada.', 'success');
+      } catch (err) {
+        console.error('Error previsualizando optimización:', err);
+        showToast('Error al obtener la secuencia optimizada.', 'error');
+      } finally {
+        previewBtn.disabled = false;
       }
     });
   }

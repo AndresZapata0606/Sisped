@@ -274,7 +274,12 @@
               <div class="route-controls">
                 <select id="routeDriverSelect"></select>
                 <button type="button" id="routeRefreshBtn">Actualizar mapa</button>
+                <button type="button" id="previewOptimizeBtn" class="btn-secondary">Previsualizar optimizada</button>
                 <button type="button" id="assignRouteBtn" class="primary">Asignar ruta</button>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input id="googleApiKeyInput" type="text" value="AIzaSyAP4mLlJsS5Lkz0HOjbwQG6EabUz65TxxE" placeholder="Google Maps API Key (opcional)" style="min-width:260px; padding:8px; border-radius:10px;" />
+                  <button type="button" id="useGoogleBtn" class="btn-secondary">Usar Google Maps</button>
+                </div>
               </div>
 
               <div class="route-summary-grid">
@@ -497,5 +502,12 @@
     </div>
 
     <script src="/app.js"></script>
+    <script>
+      // Prefill Google Maps API key in localStorage (set by assistant on user request)
+      try {
+        const key = 'AIzaSyAP4mLlJsS5Lkz0HOjbwQG6EabUz65TxxE';
+        localStorage.setItem('googleMapsApiKey', key);
+      } catch (e) { /* ignore */ }
+    </script>
   </body>
 </html>

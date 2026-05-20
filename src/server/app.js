@@ -1,7 +1,10 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const https = require('https');
 const { openDatabase } = require('./db');
+
+const OSRM_BASE_URL = process.env.OSRM_BASE_URL || 'https://router.project-osrm.org';
 
 function normalizePhone(value) {
   return String(value || '').replace(/\D/g, '');
@@ -155,6 +158,38 @@ function createRouteSuggestion(db, orderId) {
   };
 }
 
+function geocodeAddress(text) {
+  return new Promise((resolve) => {
+    if (!text) return resolve(null);
+    const query = encodeURIComponent(`${text}, Cali, Colombia`);
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${query}&limit=1`;
+
+    try {
+      const req = https.request(url, { headers: { 'User-Agent': 'ShaddayWok/1.0 (contact@shadday.local)' } }, (res) => {
+        let raw = '';
+        res.on('data', (chunk) => { raw += chunk; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length) {
+              const p = parsed[0];
+              resolve({ lat: Number(p.lat), lon: Number(p.lon) });
+            } else {
+              resolve(null);
+            }
+          } catch (e) {
+            resolve(null);
+          }
+        });
+      });
+      req.on('error', () => resolve(null));
+      req.end();
+    } catch (e) {
+      resolve(null);
+    }
+  });
+}
+
 async function startServer() {
   const db = await openDatabase();
   const app = express();
@@ -238,7 +273,87 @@ async function startServer() {
     }
   });
 
-  app.post('/api/clients/resolve', (request, response) => { // Wrap client resolution in a transaction
+  // Optimizar secuencia usando OSRM Trip (router.project-osrm.org)
+  app.post('/api/routes/optimize', async (request, response) => {
+    try {
+      const points = Array.isArray(request.body.points) ? request.body.points : [];
+      if (!points.length) return response.status(400).json({ message: 'No se proporcionaron puntos para optimizar.' });
+
+      // Asegurar que cada punto tenga lat y lon
+      const coords = [];
+      const inputPoints = [];
+      for (const p of points) {
+        const lat = Number(p.latitude ?? p.lat ?? 0);
+        const lon = Number(p.longitude ?? p.lon ?? 0);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+        coords.push(`${lon},${lat}`);
+        inputPoints.push(Object.assign({}, p, { latitude: lat, longitude: lon }));
+      }
+
+      if (!coords.length) return response.status(400).json({ message: 'No hay coordenadas válidas entre los puntos.' });
+
+      // Insertar punto base (restaurante) al inicio si no viene explícito
+      const depot = request.body.depot || { latitude: 3.4516, longitude: -76.5320 };
+      const depotCoord = `${Number(depot.longitude)},${Number(depot.latitude)}`;
+      // Prepend depot to coords/inputPoints
+      coords.unshift(depotCoord);
+      inputPoints.unshift({ id: 'depot', latitude: Number(depot.latitude), longitude: Number(depot.longitude) });
+
+      const coordsStr = coords.join(';');
+      const url = `${OSRM_BASE_URL.replace(/\/$/, '')}/trip/v1/driving/${coordsStr}?source=first&roundtrip=false&geometries=geojson&overview=full&annotations=duration,distance`;
+
+      https.get(url, (res) => {
+        let raw = '';
+        res.on('data', (chunk) => { raw += chunk; });
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(raw);
+            if (!parsed || !Array.isArray(parsed.trips) || !parsed.trips.length) {
+              return response.status(500).json({ message: 'OSRM no devolvió una ruta optimizada.' });
+            }
+
+            const trip = parsed.trips[0];
+            // Determinar orden de waypoints en el trip
+            let orderIndices = [];
+            if (Array.isArray(trip.waypoint_order)) {
+              orderIndices = trip.waypoint_order;
+            } else if (Array.isArray(trip.waypoint_indices)) {
+              orderIndices = trip.waypoint_indices;
+            } else if (Array.isArray(parsed.waypoints)) {
+              // parsed.waypoints may contain waypoint_index mapping
+              const mapping = [];
+              parsed.waypoints.forEach((wp, i) => {
+                if (typeof wp.waypoint_index === 'number') mapping[wp.waypoint_index] = i;
+              });
+              orderIndices = mapping.filter(x => typeof x === 'number');
+            }
+
+            // If we couldn't find explicit order, fall back to identity (input order)
+            if (!orderIndices.length) orderIndices = inputPoints.map((_, i) => i);
+
+            // Map indices back to inputPoints. Skip depot (index 0) when returning sequence
+            const optimized = orderIndices.map(i => inputPoints[i]).filter(p => p && p.id !== 'depot');
+
+            response.json({
+              optimized: true,
+              distanceKm: (trip.distance || 0) / 1000,
+              durationMin: Math.round((trip.duration || 0) / 60),
+              geometry: trip.geometry || null,
+              sequence: optimized
+            });
+          } catch (e) {
+            response.status(500).json({ message: 'Error parseando respuesta de OSRM.' });
+          }
+        });
+      }).on('error', (err) => {
+        response.status(500).json({ message: 'Error contactando OSRM.', error: err.message });
+      });
+    } catch (e) {
+      response.status(500).json({ message: 'Error interno optimizando ruta.' });
+    }
+  });
+
+  app.post('/api/clients/resolve', async (request, response) => { // Wrap client resolution in a transaction
     try {
       const result = db.transaction(() => {
         const name = String(request.body.name || '').trim();
@@ -266,15 +381,17 @@ async function startServer() {
           clientId = insertResult.lastInsertRowid;
         }
 
+        let insertedAddressId = null;
         if (address) {
           if (request.body.setPrimaryAddress !== false) {
             db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = ?').run(clientId);
           }
 
-          db.prepare(`
+          const insertAddr = db.prepare(`
             INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary)
             VALUES (?, ?, ?, ?, ?, ?)
           `).run(clientId, request.body.label || 'principal', address, barrio, reference, request.body.setPrimaryAddress === false ? 0 : 1);
+          insertedAddressId = insertAddr.lastInsertRowid;
         }
 
         const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
@@ -282,9 +399,26 @@ async function startServer() {
           SELECT * FROM client_addresses WHERE client_id = ? ORDER BY is_primary DESC, created_at DESC LIMIT 1
         `).get(clientId) || null;
 
-        return { client, primaryAddress };
+        return { client, primaryAddress, insertedAddressId };
       })();
       response.json(result);
+
+      // Asincrónicamente intentar geocodificar la dirección insertada y actualizar la BD
+      if (result.insertedAddressId && result.primaryAddress && result.primaryAddress.address) {
+        (async () => {
+          try {
+            const text = `${result.primaryAddress.address} ${result.primaryAddress.barrio}`;
+            const geo = await geocodeAddress(text);
+            if (geo) {
+              db.prepare('UPDATE client_addresses SET latitude = ?, longitude = ? WHERE id = ?')
+                .run(geo.lat, geo.lon, result.insertedAddressId);
+              db.save();
+            }
+          } catch (e) {
+            console.error('Geocode async error (clients):', e);
+          }
+        })();
+      }
     } catch (error) {
       response.status(400).json({ message: error.message });
     }
@@ -445,7 +579,7 @@ async function startServer() {
     })));
   });
 
-  app.post('/api/orders', (request, response) => {
+  app.post('/api/orders', async (request, response) => {
     try {
       const createdOrder = db.transaction(() => {
         const clientData = request.body.client || {};
@@ -525,6 +659,21 @@ async function startServer() {
         return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
       })();
 
+      // Intentar geocodificar la dirección del pedido y actualizar las columnas
+      (async () => {
+        try {
+          const addrText = `${createdOrder.address || ''} ${createdOrder.barrio || ''}`.trim();
+          const geo = await geocodeAddress(addrText);
+          if (geo) {
+            db.prepare('UPDATE orders SET latitude = ?, longitude = ? WHERE id = ?')
+              .run(geo.lat, geo.lon, createdOrder.id);
+            db.save();
+          }
+        } catch (e) {
+          console.error('Geocode async error (orders):', e);
+        }
+      })();
+
       const routeSuggestion = createRouteSuggestion(db, createdOrder.id);
       response.status(201).json({ order: createdOrder, routeSuggestion });
     } catch (error) {
@@ -570,8 +719,14 @@ async function startServer() {
       WHERE o.status IN ('listo para salir', 'en ruta')
       ORDER BY o.barrio ASC, datetime(o.created_at) ASC
     `).all();
+    // Incluir lat/lng si están disponibles
+    // Re-query para incluir coords
+    const ordersWithCoords = orders.map(o => {
+      const extra = db.prepare('SELECT latitude, longitude FROM orders WHERE id = ?').get(o.id) || {};
+      return { ...o, latitude: extra.latitude, longitude: extra.longitude };
+    });
 
-    const grouped = orders.reduce((accumulator, order) => {
+    const grouped = ordersWithCoords.reduce((accumulator, order) => {
       const key = order.barrio || 'Sin barrio';
       if (!accumulator[key]) {
         accumulator[key] = [];
