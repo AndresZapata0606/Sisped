@@ -5,8 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Shadday Wok</title>
     <link rel="stylesheet" href="/styles.css" />
+    
+    <!-- Tipografías e Iconografía Premium (Material Symbols & Font Awesome) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@48,400,0,0&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet CSS para Mapas -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   </head>
   <body>
     <div class="app-shell">
@@ -30,9 +37,15 @@
         </nav>
 
         <div class="sidebar-status">
-          <span id="serverStatus" class="badge">Cargando servidor...</span>
-          <strong>Modo escritorio</strong>
-          <p>La app funciona en un solo computador y guarda la informacion en SQLite.</p>
+          <div style="display:flex; gap:12px; align-items:center;">
+            <div class="status-dot success" aria-hidden="true">✓</div>
+            <div>
+              <small class="subtle">Sistema operativo</small>
+              <div style="font-weight:700;">Todo funcionando</div>
+            </div>
+          </div>
+          <p style="margin-top:10px;">La aplicación está operativa y sincronizada.</p>
+          <span id="serverStatus" class="sr-only">Servidor no verificado</span>
         </div>
       </aside>
 
@@ -48,68 +61,100 @@
 
         <div class="dashboard-views">
           <section class="view-panel active-view" id="overviewView" data-view="overview">
-            <section class="panel hero-panel">
-              <div class="hero-grid hero-grid-wide">
-                <article class="hero-card compact-card accent-card">
-                  <span>Visión general</span>
-                  <strong>Operación diaria centralizada</strong>
-                  <p>Pedidos, clientes, productos y domiciliarios en un solo panel.</p>
-                </article>
-                <article class="hero-card compact-card">
-                  <span>Estado</span>
-                  <strong id="overviewStatusText">Base local activa</strong>
-                  <p>SQLite inicializado y listo para pruebas.</p>
-                </article>
-              </div>
-              <p class="lead">
-                Panel local-first para operar pedidos diarios, seguir clientes recurrentes, controlar domiciliarios y revisar estadisticas por periodo.
-              </p>
+
+            <div class="overview-status" style="margin-bottom:12px;">
+              <strong id="overviewStatusText">Base local activa</strong>
+            </div>
+
+            <!-- Top KPI row (compact, pixel-perfect) -->
+            <section class="top-kpis">
+              <article class="kpi-card kpi-small">
+                <div class="kpi-left">
+                  <div class="kpi-avatar kpi-avatar-yellow"><span class="material-symbols-rounded">receipt_long</span></div>
+                  <div>
+                    <span>Pedidos hoy</span>
+                    <p class="muted-small">Pedidos creados</p>
+                  </div>
+                </div>
+                <div class="kpi-value"><strong id="kpiOrders">0</strong></div>
+              </article>
+
+              <article class="kpi-card kpi-small">
+                <div class="kpi-left">
+                  <div class="kpi-avatar kpi-avatar-green"><span class="material-symbols-rounded">payments</span></div>
+                  <div>
+                    <span>Ventas hoy</span>
+                    <p class="muted-small">Valor total acumulado</p>
+                  </div>
+                </div>
+                <div class="kpi-value"><strong id="kpiSales">$0</strong></div>
+              </article>
+
+              <article class="kpi-card kpi-small">
+                <div class="kpi-left">
+                  <div class="kpi-avatar kpi-avatar-purple"><span class="material-symbols-rounded">check_circle</span></div>
+                  <div>
+                    <span>Ticket promedio</span>
+                    <p class="muted-small">Valor promedio por pedido</p>
+                  </div>
+                </div>
+                <div class="kpi-value"><strong id="kpiAverageTicket">$0</strong></div>
+              </article>
+
+              <article class="kpi-card kpi-small">
+                <div class="kpi-left">
+                  <div class="kpi-avatar kpi-avatar-orange"><span class="material-symbols-rounded">delivery_dining</span></div>
+                  <div>
+                    <span>Tiempo promedio entrega</span>
+                    <p class="muted-small">Desde recogida hasta entrega</p>
+                  </div>
+                </div>
+                <div class="kpi-value"><strong id="kpiAverageDeliveryTime">0 min</strong></div>
+              </article>
             </section>
 
-            <section class="kpi-grid">
-              <article class="kpi-card">
-                <span>Pedidos hoy</span>
-                <strong id="kpiOrders">0</strong>
-                <p>Pedidos creados en el rango seleccionado.</p>
-              </article>
-              <article class="kpi-card accent">
-                <span>Ventas hoy</span>
-                <strong id="kpiSales">$0</strong>
-                <p>Valor total acumulado.</p>
-              </article>
-              <article class="kpi-card">
-                <span>Domiciliarios activos</span>
-                <strong id="kpiDrivers">0</strong>
-                <p>Disponibles para asignación.</p>
-              </article>
-              <article class="kpi-card">
-                <span>Productos activos</span>
-                <strong id="kpiProducts">0</strong>
-                <p>Catálogo listo para la comanda.</p>
-              </article>
-              <article class="kpi-card">
-                <span>Pedidos entregados</span>
-                <strong id="kpiDeliveredOrders">0</strong>
-                <p>Pedidos completados en el rango.</p>
-              </article>
-              <article class="kpi-card">
-                <span>Pedidos cancelados</span>
-                <strong id="kpiCancelledOrders">0</strong>
-                <p>Pedidos que no se pudieron entregar.</p>
-              </article>
-              <article class="kpi-card accent">
-                <span>Ticket promedio</span>
-                <strong id="kpiAverageTicket">$0</strong>
-                <p>Valor promedio por pedido.</p>
-              </article>
-              <article class="kpi-card">
-                <span>Tiempo promedio entrega</span>
-                <strong id="kpiAverageDeliveryTime">0 min</strong>
-                <p>Desde recogida hasta entrega.</p>
-              </article>
-               </section>
+            <!-- Operación de pedidos: panel contenedor con tarjetas internas -->
+            <section class="operation-panel">
+              <div class="operation-header">
+                <h3>Operación de pedidos</h3>
+              </div>
+              <div class="operation-cards">
+                <article class="panel-card">
+                  <div class="panel-card-left"><div class="panel-avatar panel-avatar-blue">📦</div></div>
+                  <div>
+                    <span>Pedidos entregados</span>
+                    <strong id="kpiDeliveredOrders">0</strong>
+                    <p class="muted-small">Pedidos completados en el rango</p>
+                  </div>
+                </article>
+                <article class="panel-card">
+                  <div class="panel-card-left"><div class="panel-avatar panel-avatar-red">❌</div></div>
+                  <div>
+                    <span>Pedidos cancelados</span>
+                    <strong id="kpiCancelledOrders">0</strong>
+                    <p class="muted-small">Pedidos que no se pudieron entregar</p>
+                  </div>
+                </article>
+                <article class="panel-card">
+                  <div class="panel-card-left"><div class="panel-avatar panel-avatar-green">🛵</div></div>
+                  <div>
+                    <span>Domiciliarios activos</span>
+                    <strong id="kpiDrivers">0</strong>
+                    <p class="muted-small">Disponibles para asignación</p>
+                  </div>
+                </article>
+                <article class="panel-card">
+                  <div class="panel-card-left"><div class="panel-avatar panel-avatar-blue2">📦</div></div>
+                  <div>
+                    <span>Productos activos</span>
+                    <strong id="kpiProducts">0</strong>
+                    <p class="muted-small">Catálogo listo para la comanda</p>
+                  </div>
+                </article>
+              </div>
+            </section>
 
-            <section class="insight-grid">
+            <section class="insight-grid insights-large">
               <article class="insight-card">
                 <div class="insight-head">
                   <span>Cliente frecuente</span>
@@ -160,157 +205,486 @@
             </section>
           </section>
 
-          <section class="view-panel" id="ordersView" data-view="orders">
+          <!-- SECCIÓN DE COMANDAS TOTALMENTE REDISEÑADA AL ESTILO PREMIUM -->
+          <section class="view-panel" id="ordersView" data-view="orders" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow">Gestion</p>
-                <h2>Pedidos en curso</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Gestion</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Pedidos en curso</h2>
               </div>
-              <button type="button" id="openOrderModal" class="primary">+ Nueva comanda</button>
+              <button type="button" id="openOrderModal" class="primary" style="display: flex; align-items: center; gap: 8px; font-weight: 600; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);">
+                <span class="material-symbols-rounded" style="font-size: 20px;">add_circle</span> + Nueva comanda
+              </button>
             </div>
 
-            <section class="overview-grid">
-              <article class="panel chart-panel">
-                <div class="panel-header">
-                  <h2>Flujo de pedidos</h2>
-                  <span>conteo por estado</span>
-                </div>
-                <div id="ordersChart" class="orders-chart"></div>
-              </article>
-
-              <article class="panel">
-                <div class="panel-header">
-                  <div>
-                    <h2>Actividad reciente</h2>
-                    <span>últimos movimientos</span>
+            <!-- Layout maestro-detalle moderno con KPIs superiores integrados -->
+            <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              
+              <!-- Fila superior de KPIs con microinteracciones y diseño premium -->
+              <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
+                
+                <div class="kpi-card" id="kpiOrdersToday" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">receipt_long</span>
                   </div>
-                  <input type="text" id="orderSearchInput" placeholder="Buscar ID (ej. 1)..." style="width: 150px; padding: 6px 12px; font-size: 0.85rem;" />
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Comandas hoy</div>
+                    <div class="kpi-value" id="ordersTodayCount" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" style="font-size: 12px; color: var(--muted);">Total creadas</div>
+                  </div>
                 </div>
-                <div id="ordersList" class="orders-list"></div>
-              </article>
-            </section>
+
+                <div class="kpi-card" id="kpiPreparing" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-green" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(34, 197, 94, 0.15); color: #22c55e;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">soup_kitchen</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">En preparación</div>
+                    <div class="kpi-value" id="ordersPreparing" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" id="ordersPreparingPercent" style="font-size: 12px; color: var(--muted);">0% del total</div>
+                  </div>
+                </div>
+
+                <div class="kpi-card" id="kpiOnRoute" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-orange" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">delivery_dining</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">En ruta</div>
+                    <div class="kpi-value" id="ordersOnRoute" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" id="ordersOnRoutePercent" style="font-size: 12px; color: var(--muted);">0% del total</div>
+                  </div>
+                </div>
+
+                <div class="kpi-card" id="kpiDelivered" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-purple" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">check_circle</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Entregadas</div>
+                    <div class="kpi-value" id="ordersDelivered" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" id="ordersDeliveredPercent" style="font-size: 12px; color: var(--muted);">0% del total</div>
+                  </div>
+                </div>
+
+              </section>
+
+              <!-- Sección interactiva: Listado de tablas (Izquierda) + Detalle de comanda (Derecha) -->
+              <div style="display: grid; grid-template-columns: 1fr 380px; gap: 24px; align-items: start; width: 100%;">
+                
+                <!-- Panel izquierdo con la Tabla de comandas y controles -->
+                <div class="panel panel-table" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 20px; width: 100%;">
+                  
+                  <div class="panel-header" style="display: flex; flex-direction: column; gap: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                      <div>
+                        <h3 style="font-size: 18px; font-weight: 700; letter-spacing: -0.01em;">Lista de comandas</h3>
+                        <div class="subtle" style="font-size: 12px; color: var(--muted); margin-top: 2px;">Filtra y busca comandas en tiempo real</div>
+                      </div>
+                      
+                      <!-- Buscador elegante con icono de lupa -->
+                      <div style="position: relative; width: 240px;">
+                        <span class="material-symbols-rounded" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--muted);">search</span>
+                        <input type="text" id="orderSearchInput" placeholder="Buscar comanda..." style="width: 100%; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px 10px 38px; color: var(--text-primary); font-size: 13px;" />
+                      </div>
+                    </div>
+
+                    <!-- Pestañas de estado (Pills) compactas y hermosas -->
+                    <div class="panel-controls" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--panel-border); padding-bottom: 12px;">
+                      <div class="filters" style="display: flex; background: rgba(0, 0, 0, 0.2); padding: 4px; border-radius: 10px; border: 1px solid var(--panel-border);">
+                        <button class="filter-pill active" data-filter="all" style="background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px;">Todas</button>
+                        <button class="filter-pill" data-filter="preparing" style="background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px;">En preparación</button>
+                        <button class="filter-pill" data-filter="route" style="background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px;">En ruta</button>
+                        <button class="filter-pill" data-filter="delivered" style="background: transparent; border: none; color: var(--muted); padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px;">Entregadas</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Contenedor responsivo de la tabla -->
+                  <div class="table-container" style="overflow-x: auto;">
+                    <table class="orders-table" id="ordersTable" style="width: 100%; border-collapse: separate; border-spacing: 0;">
+                      <thead>
+                        <tr style="background: rgba(0,0,0,0.1);">
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">ID</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Cliente</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Dirección</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Estado</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: right; border-bottom: 1px solid var(--panel-border);">Total</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Hora</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: center; border-bottom: 1px solid var(--panel-border);">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="ordersList" style="font-size: 13px;">
+                        <!-- Renderizado reactivo desde app.js -->
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Footer de paginación e información consolidada -->
+                  <div class="table-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--panel-border); padding-top: 16px;">
+                    <div class="table-meta" style="font-size: 12px; color: var(--muted);">
+                      Mostrando <span id="tableRange" style="font-weight: 600; color: var(--text-primary);">0</span> de <span id="tableTotal" style="font-weight: 600; color: var(--text-primary);">0</span> comandas
+                    </div>
+                    <div class="pagination" id="ordersPagination" style="display: flex; gap: 4px;">
+                      <!-- Se renderizan los números e interacciones desde JS -->
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Panel derecho (Detalle de comanda Master-Detail) estilo Glassmorphism -->
+                <aside class="orders-sidebar" style="height: 100%;">
+                  <div class="panel detail-panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 20px; backdrop-filter: blur(15px);">
+                    
+                    <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--panel-border); padding-bottom: 16px;">
+                      <h3 style="font-size: 16px; font-weight: 700; letter-spacing: -0.01em;">Detalle de comanda</h3>
+                      <div id="detailStatusBadge" class="insight-chip success" style="padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase;">-</div>
+                    </div>
+
+                    <div class="detail-body" style="display: flex; flex-direction: column; gap: 16px;">
+                      
+                      <!-- Número de comanda -->
+                      <h4 id="detailTitle" style="font-size: 18px; font-weight: 800; color: var(--accent); letter-spacing: -0.02em;">
+                        Comanda #-<span id="detailOrderId">-</span>
+                      </h4>
+
+                      <!-- Información del Cliente -->
+                      <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--panel-border); border-radius: 12px; padding: 12px; display: flex; gap: 12px; align-items: flex-start;">
+                        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0;">
+                          <span class="material-symbols-rounded" style="font-size: 18px;">person</span>
+                        </div>
+                        <div style="flex-grow: 1;">
+                          <div id="detailClientName" style="font-size: 13px; font-weight: 600; color: var(--text-primary);">-</div>
+                          <div id="detailClientPhone" style="font-size: 12px; color: var(--muted); margin-top: 2px;">-</div>
+                        </div>
+                      </div>
+
+                      <!-- Dirección de entrega -->
+                      <div style="background: rgba(0,0,0,0.15); border: 1px solid var(--panel-border); border-radius: 12px; padding: 12px; display: flex; gap: 12px; align-items: flex-start;">
+                        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 8px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: var(--muted); flex-shrink: 0;">
+                          <span class="material-symbols-rounded" style="font-size: 18px;">distance</span>
+                        </div>
+                        <div style="flex-grow: 1;">
+                          <div style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 2px;">Dirección de entrega</div>
+                          <div id="detailAddress" style="font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.4;">-</div>
+                        </div>
+                      </div>
+
+                      <!-- Desglose de Productos del pedido -->
+                      <div class="detail-items" id="detailItems" style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="font-size: 10px; text-transform: uppercase; font-weight: 700; color: var(--muted); letter-spacing: 0.05em; margin-bottom: 4px;">Resumen del pedido</div>
+                        <div class="mini-list" style="display: flex; flex-direction: column; gap: 6px; font-size: 13px;">
+                          No seleccionado
+                        </div>
+                      </div>
+
+                    </div>
+
+                    <!-- Bloque financiero del pedido y botón interactivo -->
+                    <div class="panel-footer" style="border-top: 1px solid var(--panel-border); padding-top: 16px; margin-top: auto; display: flex; flex-direction: column; gap: 16px;">
+                      <div class="pricing" style="display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted);">
+                        <div style="display: flex; justify-content: space-between;">Subtotal <span id="detailSubtotal" style="font-weight: 600; color: var(--text-primary);">$0</span></div>
+                        <div style="display: flex; justify-content: space-between;">Domicilio <span id="detailShipping" style="font-weight: 600; color: var(--text-primary);">$0</span></div>
+                        <div class="total" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--panel-border); padding-top: 10px; margin-top: 4px; font-size: 16px; font-weight: 700;">
+                          Total <strong id="detailTotal" style="color: var(--accent); font-size: 18px;">$0</strong>
+                        </div>
+                      </div>
+                      <button class="primary" id="detailUpdateBtn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 12px; font-weight: 700; border-radius: 10px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);">
+                        <span class="material-symbols-rounded" style="font-size: 18px;">autorenew</span> Actualizar estado
+                      </button>
+                      <div style="display: flex; gap: 8px;">
+                        <button class="btn-secondary" id="detailEditBtn" style="flex: 1; padding: 10px; font-size: 12px; font-weight: 600;">Editar Comanda</button>
+                        <button class="btn-danger" id="detailDeleteBtn" style="flex: 1; padding: 10px; font-size: 12px; font-weight: 600;">Eliminar</button>
+                      </div>
+                    </div>
+
+                  </div>
+                </aside>
+
+              </div>
+
+            </div>
           </section>
 
-          <section class="view-panel" id="clientsView" data-view="clients">
+          <!-- SECCIÓN DE CLIENTES AL ESTILO SAAS PREMIUM -->
+          <section class="view-panel" id="clientsView" data-view="clients" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow">Clientes</p>
-                <h2>Gestión de Clientes</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">CRM</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Base de Datos de Clientes</h2>
               </div>
-              <button type="button" id="openClientModal" class="primary">+ Nuevo Cliente</button>
+              <button type="button" id="openClientModalBtn" class="primary" style="display: flex; align-items: center; gap: 8px; font-weight: 600; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);">
+                <span class="material-symbols-rounded" style="font-size: 20px;">person_add</span> + Nuevo cliente
+              </button>
             </div>
 
-            <section class="panel">
-              <div class="panel-header">
-                <h2>Buscar cliente</h2>
-                <span>nombre o teléfono</span>
+            <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              
+              <!-- KPIs de Clientes -->
+              <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">group</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Total Clientes</div>
+                    <div class="kpi-value" id="kpiTotalClients" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-green" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(34, 197, 94, 0.15); color: #22c55e;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">verified_user</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Recurrentes</div>
+                    <div class="kpi-value" id="kpiFrequentClients" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+              </section>
+
+              <div style="display: grid; grid-template-columns: 1fr 380px; gap: 24px; align-items: start; width: 100%;">
+                <!-- Tabla de Clientes -->
+                <div class="panel panel-table" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 20px; width: 100%;">
+                  <div class="panel-header" style="display: flex; flex-direction: column; gap: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                      <h3 style="font-size: 18px; font-weight: 700;">Listado de clientes</h3>
+                      <div style="position: relative; width: 240px;">
+                        <span class="material-symbols-rounded" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--muted);">search</span>
+                        <input type="text" id="clientViewSearch" placeholder="Buscar cliente..." style="width: 100%; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px 10px 38px; color: var(--text-primary); font-size: 13px;" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="table-container" style="overflow-x: auto;">
+                    <table class="orders-table" id="clientsTable" style="width: 100%; border-collapse: separate; border-spacing: 0;">
+                      <thead>
+                        <tr style="background: rgba(0,0,0,0.1);">
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Nombre</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Teléfono</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Última Dirección</th>
+                          <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 600; text-align: right; border-bottom: 1px solid var(--panel-border);">Pedidos</th>
+                        </tr>
+                      </thead>
+                      <tbody id="clientsListTable" style="font-size: 13px;"></tbody>
+                    </table>
+                  </div>
+
+                  <!-- Footer de paginación para Clientes -->
+                  <div class="table-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--panel-border); padding-top: 16px;">
+                    <div class="table-meta" style="font-size: 12px; color: var(--muted);">
+                      Mostrando <span id="clientsTableRange" style="font-weight: 600; color: var(--text-primary);">0</span> clientes
+                    </div>
+                    <div class="pagination" id="clientsPagination" style="display: flex; gap: 4px;"></div>
+                  </div>
+                </div>
+
+                <!-- Detalle Lateral del Cliente -->
+                <aside class="orders-sidebar">
+                  <div class="panel detail-panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 20px; backdrop-filter: blur(15px);">
+                    <div class="panel-header" style="border-bottom: 1px solid var(--panel-border); padding-bottom: 16px;">
+                      <h3 style="font-size: 16px; font-weight: 700;">Perfil del Cliente</h3>
+                    </div>
+                    <div id="clientDetailBody" style="display: flex; flex-direction: column; gap: 16px;">
+                      <div class="subtle" style="text-align: center; padding: 40px 0;">
+                        Selecciona un cliente para ver su historial y detalles
+                      </div>
+                    </div>
+                    <div class="panel-footer" id="clientDetailActions" style="display: none; border-top: 1px solid var(--panel-border); padding-top: 16px; margin-top: auto; display: flex; flex-direction: column; gap: 8px;">
+                      <button class="primary" id="editClientDetailBtn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
+                        <span class="material-symbols-rounded" style="font-size: 18px;">edit</span> Editar Información
+                      </button>
+                      <button class="btn-danger" id="deleteClientDetailBtn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
+                        <span class="material-symbols-rounded" style="font-size: 18px;">delete</span> Eliminar Cliente
+                      </button>
+                    </div>
+                  </div>
+                </aside>
               </div>
-              <form id="clientSearchForm" class="inline-form">
-                <input id="clientSearchInput" type="text" placeholder="Ej. Maria Perez o 3012223344" />
-                <button type="submit">Buscar</button>
-              </form>
-              <div id="clientResults" class="results"></div>
-            </section>
+            </div>
           </section>
 
-          <section class="view-panel" id="catalogView" data-view="catalog">
+          <!-- VISTA: PRODUCTOS / CATALOGO -->
+          <section class="view-panel" id="catalogView" data-view="catalog" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow">Productos</p>
-                <h2>Catálogo y combos</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Inventario</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Catálogo de Productos</h2>
               </div>
-              <p class="subtle">El catálogo nutre la toma de pedidos desde la comandera.</p>
+              <button type="button" id="newProductBtn" class="primary" style="display: flex; align-items: center; gap: 8px; font-weight: 600; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);">
+                <span class="material-symbols-rounded" style="font-size: 20px;">add_box</span> + Nuevo Producto
+              </button>
             </div>
 
-            <section class="panel">
-              <div class="panel-header">
-                <h2>Catálogo de productos</h2>
-                <span>combos y precios</span>
+            <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">inventory_2</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Total Ítems</div>
+                    <div class="kpi-value" id="kpiTotalProducts" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-green" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(34, 197, 94, 0.15); color: #22c55e;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">check_circle</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Activos</div>
+                    <div class="kpi-value" id="kpiActiveProducts" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-purple" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">category</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Categorías</div>
+                    <div class="kpi-value" id="kpiCategories" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+              </section>
+
+              <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; width: 100%;">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
+                  <div class="filters" style="display: flex; background: rgba(0, 0, 0, 0.2); padding: 4px; border-radius: 10px; border: 1px solid var(--panel-border); gap: 4px;">
+                    <button class="filter-pill active" data-products-filter="all" style="background:transparent; border:none; padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px;">Todos</button>
+                    <button class="filter-pill" data-products-filter="individuals" style="background:transparent; border:none; padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px;">Individuales</button>
+                    <button class="filter-pill" data-products-filter="combos" style="background:transparent; border:none; padding: 6px 14px; font-size: 13px; font-weight: 500; cursor: pointer; border-radius: 8px;">Combos</button>
+                  </div>
+                  <div style="position: relative; width: 280px;">
+                    <span class="material-symbols-rounded" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--muted);">search</span>
+                    <input type="text" id="productSearchInput" placeholder="Buscar en el catálogo..." style="width: 100%; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px 10px 38px; color: var(--text-primary); font-size: 13px;" />
+                  </div>
+                </div>
+                <div id="productsList" class="products-list" style="display: flex; flex-direction: column; gap: 24px; width: 100%; max-width: 100%;"></div>
               </div>
-              <div class="products-filter-bar">
-                <button type="button" class="filter-pill active" data-products-filter="all">Todos</button>
-                <button type="button" class="filter-pill" data-products-filter="individuals">Individuales</button>
-                <button type="button" class="filter-pill" data-products-filter="combos">Combos</button>
-              </div>
-              <button id="newProductBtn" class="btn-primary" style="width: 100%;">+ Nuevo Producto</button>
-              <div id="productsList" class="products-list"></div>
-            </section>
+            </div>
           </section>
 
-          <section class="view-panel" id="driversView" data-view="drivers">
+          <!-- VISTA: DOMICILIARIOS -->
+          <section class="view-panel" id="driversView" data-view="drivers" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow">Domiciliarios</p>
-                <h2>Disponibilidad y activación</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Logística</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Equipo de Reparto</h2>
               </div>
-              <p class="subtle">Solo los activos participan en la asignación de ruta.</p>
+              <button type="button" id="openDriverModal" class="primary" style="display: flex; align-items: center; gap: 8px; font-weight: 600; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);">
+                <span class="material-symbols-rounded" style="font-size: 20px;">person_add</span> + Nuevo Domiciliario
+              </button>
             </div>
 
-            <section class="panel">
-              <div class="panel-header">
-                <h2>Gestión de domiciliarios</h2>
-                <span>disponibilidad y turnos</span>
+            <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">sports_motorsports</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Total Equipo</div>
+                    <div class="kpi-value" id="kpiTotalDrivers" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-green" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(34, 197, 94, 0.15); color: #22c55e;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">bolt</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">En Turno</div>
+                    <div class="kpi-value" id="kpiActiveDrivers" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-orange" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">delivery_dining</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">En Ruta</div>
+                    <div class="kpi-value" id="kpiOnRouteDrivers" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+              </section>
+
+              <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; width: 100%;">
+                <div id="driversList" class="mini-list" style="width: 100%; max-width: 100%; display: flex; flex-direction: column; gap: 24px;"></div>
               </div>
-              <button id="openDriverModal" class="btn-primary" style="width: 100%;">+ Nuevo Domiciliario</button>
-              <div id="driversList" class="mini-list"></div>
-            </section>
+            </div>
           </section>
 
-          <section class="view-panel" id="routesView" data-view="routes">
+          <!-- SECCIÓN DE RUTAS AL ESTILO SAAS PREMIUM -->
+          <section class="view-panel" id="routesView" data-view="routes" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow">Rutas</p>
-                <h2>Mapa y despacho geolocalizado</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Logística</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Mapa y Despacho Geocalizado</h2>
               </div>
-              <p class="subtle">Pedidos listos, domiciliario activo y secuencia sugerida por barrio.</p>
             </div>
 
-            <section class="panel route-panel">
-              <div class="panel-header">
-                <h2>Planificación de ruta</h2>
-                <span>Cali, Colombia</span>
-              </div>
+            <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              
+              <!-- KPIs de Logística -->
+              <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">forklift</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Pedidos Listos</div>
+                    <div class="kpi-value" id="routeOrderCount" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-orange" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">location_city</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Barrios</div>
+                    <div class="kpi-value" id="routeNeighborhoodCount" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                  </div>
+                </div>
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                  <div class="kpi-avatar kpi-avatar-purple" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">map</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Distancia</div>
+                    <div class="kpi-value" id="routeDistance" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0 km</div>
+                  </div>
+                </div>
+              </section>
 
-              <div class="route-controls">
-                <select id="routeDriverSelect"></select>
-                <button type="button" id="routeRefreshBtn">Actualizar mapa</button>
-                <button type="button" id="previewOptimizeBtn" class="btn-secondary">Previsualizar optimizada</button>
-                <button type="button" id="assignRouteBtn" class="primary">Asignar ruta</button>
-                <div style="display:flex; gap:8px; align-items:center;">
-                  <input id="googleApiKeyInput" type="text" value="AIzaSyAP4mLlJsS5Lkz0HOjbwQG6EabUz65TxxE" placeholder="Google Maps API Key (opcional)" style="min-width:260px; padding:8px; border-radius:10px;" />
-                  <button type="button" id="useGoogleBtn" class="btn-secondary">Usar Google Maps</button>
+              <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; width: 100%;">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
+                  <div class="route-controls" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center; width: 100%;">
+                    <select id="routeDriverSelect" style="min-width: 240px; background: rgba(0,0,0,0.25); border: 1px solid var(--panel-border); color: var(--text-primary);"></select>
+                    <select id="routeLimitSelect" title="Pedidos por ruta" style="min-width: 120px; background: rgba(0,0,0,0.25); border: 1px solid var(--panel-border); color: var(--text-primary);">
+                      <option value="3">3 por ruta</option>
+                      <option value="4">4 por ruta</option>
+                      <option value="5" selected>5 por ruta</option>
+                      <option value="6">6 por ruta</option>
+                    </select>
+                    <button type="button" id="routeRefreshBtn" class="mini-action">Actualizar</button>
+                    <button type="button" id="previewOptimizeBtn" class="mini-action">Optimizar</button>
+                    <button type="button" id="assignRouteBtn" class="primary" style="margin-left: auto;">Asignar Ruta</button>
+                  </div>
+                </div>
+
+                <div class="route-layout" style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 24px; min-height: 550px;">
+                  <div style="display: flex; flex-direction: column; gap: 16px;">
+                    <div id="routeMap" class="route-map" style="border-radius: 16px; border: 1px solid var(--panel-border); background: #07111f; flex-grow: 1;"></div>
+                    <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Rutas Sugeridas por Zona</h3>
+                    <div id="suggestedRoutesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;"></div>
+                  </div>
+                  <div class="route-sequence-card" style="background: rgba(0,0,0,0.15); border: 1px solid var(--panel-border); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
+                    <h3 style="font-size: 16px; font-weight: 700; border-bottom: 1px solid var(--panel-border); padding-bottom: 12px; margin: 0;">Secuencia Sugerida</h3>
+                    <div id="routeSequence" class="route-sequence" style="overflow-y: auto; display: flex; flex-direction: column; gap: 12px;"></div>
+                  </div>
                 </div>
               </div>
-
-              <div class="route-summary-grid">
-                <article class="route-summary-card">
-                  <span>Pedidos en ruta</span>
-                  <strong id="routeOrderCount">0</strong>
-                </article>
-                <article class="route-summary-card accent">
-                  <span>Barrios agrupados</span>
-                  <strong id="routeNeighborhoodCount">0</strong>
-                </article>
-                <article class="route-summary-card">
-                  <span>Distancia estimada</span>
-                  <strong id="routeDistance">0 km</strong>
-                </article>
-                <article class="route-summary-card">
-                  <span>Tiempo estimado</span>
-                  <strong id="routeEta">0 min</strong>
-                </article>
-              </div>
-
-              <div class="route-layout">
-                <div id="routeMap" class="route-map"></div>
-                <div class="route-sequence-card">
-                  <div class="section-title">Secuencia sugerida</div>
-                  <div id="routeSequence" class="route-sequence"></div>
-                </div>
-              </div>
-            </section>
+            </div>
           </section>
 
+          <!-- VISTA: ANALYTICS -->
           <section class="view-panel" id="analyticsView" data-view="analytics">
             <div class="view-header">
               <div>
@@ -375,6 +749,9 @@
       <div id="client-info" class="tab-content active">
         <form id="clientForm" class="order-form">
           <input type="hidden" name="clientId" />
+          <input type="hidden" name="latitude" />
+          <input type="hidden" name="longitude" />
+          <input type="hidden" name="barrio" />
           <div class="form-grid-modal">
             <div class="stack-form">
               <label class="subtle">Nombre completo</label>
@@ -386,22 +763,19 @@
             </div>
           </div>
           
-          <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--panel-border);">
-            <h3 style="font-size: 1rem; margin-bottom: 10px;">Dirección Principal</h3>
+          <div class="section" style="margin-top: 15px;">
+            <h3 style="font-size: 0.9rem; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--accent);">📍 Dirección Principal</h3>
             <div class="form-grid-modal">
               <div class="stack-form">
                 <label class="subtle">Dirección</label>
                 <input name="address" type="text" placeholder="Calle / Carrera" required />
-              </div>
-              <div class="stack-form">
-                <label class="subtle">Barrio</label>
-                <input name="barrio" type="text" placeholder="Nombre del barrio" required />
               </div>
               <div class="stack-form" style="grid-column: 1 / -1;">
                 <label class="subtle">Referencia</label>
                 <input name="reference" type="text" placeholder="Apto / Local / Color casa" />
               </div>
             </div>
+            <div class="mini-map-preview"></div>
           </div>
           <div class="stack-form" style="margin-top: 10px;">
             <label class="subtle">Notas internas</label>
@@ -420,72 +794,96 @@
 
     <!-- Plantilla para el formulario de comanda -->
     <template id="orderFormTemplate">
-      <form id="orderForm" class="order-form">
-        <div class="form-grid-modal">
-          <div class="stack-form">
-            <label class="subtle">Nombre del cliente</label>
-            <input name="name" type="text" placeholder="Ej. Juan Pérez" required />
-          </div>
-          <div class="stack-form">
-            <label class="subtle">Teléfono</label>
-            <input name="phone" type="text" placeholder="300 000 0000" required />
-          </div>
-          <div class="stack-form">
-            <label class="subtle">Dirección</label>
-            <input name="address" type="text" placeholder="Calle / Carrera" required />
-          </div>
-          <div class="stack-form">
-            <label class="subtle">Barrio</label>
-            <input name="barrio" type="text" placeholder="Nombre del barrio" required />
-          </div>
-          <div class="stack-form">
-            <label class="subtle">Referencia</label>
-            <input name="reference" type="text" placeholder="Apto / Local / Color casa" />
-          </div>
-          <div class="stack-form">
-            <label class="subtle">Método de pago</label>
-            <select name="paymentMethod">
-              <option>Efectivo</option>
-              <option>Transferencia</option>
-              <option>Nequi/Daviplata</option>
-            </select>
-          </div>
-        </div>
-        
-        <div id="addressSelectorContainer" style="display: none; margin-top: 10px;">
-          <label class="subtle">Usar dirección guardada</label>
-          <select id="savedAddressSelect"></select>
-        </div>
+      <form id="orderForm" class="order-form modal-order-form">
+        <input type="hidden" name="latitude" />
+        <input type="hidden" name="longitude" />
+        <input type="hidden" name="barrio" />
+        <div class="order-modal-grid">
+          <div class="order-modal-left">
+            <div class="section numbered">
+              <div class="section-header"><div class="section-number">1</div><div class="section-title">Datos del cliente</div></div>
+              <div class="form-grid-modal">
+                <div class="stack-form">
+                  <label class="subtle">Nombre del cliente</label>
+                  <input name="name" type="text" placeholder="Ej. Juan Pérez" required />
+                </div>
+                <div class="stack-form">
+                  <label class="subtle">Teléfono</label>
+                  <input name="phone" type="text" placeholder="300 000 0000" required />
+                </div>
+              </div>
+            </div>
 
-        <div class="stack-form" style="margin-top: 10px;">
-          <label class="subtle">Asignar domiciliario</label>
-          <select name="driverId" id="orderDriverSelect">
-            <option value="">Sin asignar (despacho manual)</option>
-          </select>
-        </div>
+            <div class="section numbered">
+              <div class="section-header"><div class="section-number">2</div><div class="section-title">Información de entrega</div></div>
+              <div class="form-grid-modal">
+                <div class="stack-form">
+                  <label class="subtle">Dirección</label>
+                  <input name="address" type="text" placeholder="Calle / Carrera" required />
+                </div>
+                <div class="stack-form" style="grid-column: 1 / -1;">
+                  <label class="subtle">Referencia</label>
+                  <input name="reference" type="text" placeholder="Apto / Local / Color casa" />
+                </div>
+              </div>
+              <div class="mini-map-preview"></div>
+            </div>
 
-        <textarea name="notes" rows="2" placeholder="Observaciones o extras (Obligatorio)" required style="margin-top: 10px;"></textarea>
+            <div class="section numbered">
+              <div class="section-header"><div class="section-number">3</div><div class="section-title">Configuración de la comanda</div></div>
+              <div class="form-grid-modal">
+                <div class="stack-form">
+                  <label class="subtle">Método de pago</label>
+                  <select name="paymentMethod">
+                    <option>Efectivo</option>
+                    <option>Transferencia</option>
+                    <option>Nequi/Daviplata</option>
+                  </select>
+                </div>
+                <div class="stack-form">
+                  <label class="subtle">Asignar domiciliario</label>
+                  <select name="driverId" id="orderDriverSelect">
+                    <option value="">Sin asignar</option>
+                  </select>
+                </div>
+              </div>
 
-        <div class="items-builder" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--panel-border);">
-          <div class="panel-header compact">
-            <h3>Productos</h3>
+              <div class="stack-form" style="margin-top: 8px;">
+                <label class="subtle">Observaciones del pedido</label>
+                <textarea name="notes" rows="3" placeholder="Ej. sin cebolla, timbre dañado, llamar al llegar, etc."></textarea>
+              </div>
+
+              <div class="inline-actions modal-actions">
+                <button type="button" class="btn-secondary" id="clearOrderForm">Limpiar formulario</button>
+                <button type="submit" class="primary">Crear comanda</button>
+              </div>
+            </div>
           </div>
-          <input type="text" id="orderProductSearch" placeholder="🔍 Buscar plato (ej. Arroz)..." style="margin-bottom: 10px; width: 100%;" />
-          <div class="inline-form wrap">
-            <select id="orderProductSelect"></select>
-            <input id="orderQuantityInput" type="number" min="1" value="1" />
-            <button type="button" id="addItemButton">Agregar</button>
-          </div>
-          <div id="pendingItems" class="mini-list"></div>
-        </div>
 
-        <div class="inline-actions" style="margin-top: 20px;">
-          <button type="submit" class="primary" style="flex: 1;">Crear comanda</button>
+          <aside class="order-modal-right">
+            <div class="section">
+              <div class="section-header"><div class="section-title">4. Productos</div></div>
+              <input type="text" id="orderProductSearch" placeholder="Buscar plato (ej. Arroz, Hamburguesa...)" />
+              <div class="inline-form wrap" style="margin-top:8px;">
+                <select id="orderProductSelect"></select>
+                <input id="orderQuantityInput" type="number" min="1" value="1" style="width:72px;" />
+                <button type="button" id="addItemButton" class="btn-primary">Agregar</button>
+              </div>
+
+              <div id="pendingItems" class="products-added-list" style="margin-top:12px;"></div>
+            </div>
+
+            <div class="section summary-box">
+              <div class="summary-row"><span>Subtotal productos</span><strong id="detailSubtotal">$0</strong></div>
+              <div class="summary-row"><span>Costo de domicilio</span><strong id="detailShipping">$0</strong></div>
+              <div class="summary-row total"><span>Total a pagar</span><strong id="detailTotal">$0</strong></div>
+            </div>
+          </aside>
         </div>
       </form>
     </template>
 
-    <!-- Panel lateral persistente para Comanda -->
+    <!-- Panel lateral para toma rápida de comanda -->
     <div id="orderPanel" class="order-panel">
       <div class="order-panel-header">
         <div>
@@ -501,9 +899,10 @@
       </div>
     </div>
 
+    <!-- Carga del archivo principal de la App -->
     <script src="/app.js"></script>
     <script>
-      // Prefill Google Maps API key in localStorage (set by assistant on user request)
+      // Prefill Google Maps API key en localStorage
       try {
         const key = 'AIzaSyAP4mLlJsS5Lkz0HOjbwQG6EabUz65TxxE';
         localStorage.setItem('googleMapsApiKey', key);

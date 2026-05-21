@@ -171,7 +171,7 @@ async function createSqlDatabase() {
       picked_up_at TEXT,
       delivered_at TEXT,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (client_id) REFERENCES clients(id),
+      FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE,
       FOREIGN KEY (driver_id) REFERENCES drivers(id)
     );
 

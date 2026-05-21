@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const http = require('http');
 const https = require('https');
 const { openDatabase } = require('./db');
 
@@ -158,34 +159,27 @@ function createRouteSuggestion(db, orderId) {
   };
 }
 
-function geocodeAddress(text) {
-  return new Promise((resolve) => {
-    if (!text) return resolve(null);
-    const query = encodeURIComponent(`${text}, Cali, Colombia`);
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${query}&limit=1`;
-
+function requestUrl(url, options = {}) {
+  return new Promise((resolve, reject) => {
     try {
-      const req = https.request(url, { headers: { 'User-Agent': 'ShaddayWok/1.0 (contact@shadday.local)' } }, (res) => {
+      const parsedUrl = new URL(url);
+      const client = parsedUrl.protocol === 'http:' ? http : https;
+      const requestOptions = {
+        headers: options.headers || {},
+        method: options.method || 'GET'
+      };
+
+      const req = client.request(parsedUrl, requestOptions, (res) => {
         let raw = '';
         res.on('data', (chunk) => { raw += chunk; });
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed) && parsed.length) {
-              const p = parsed[0];
-              resolve({ lat: Number(p.lat), lon: Number(p.lon) });
-            } else {
-              resolve(null);
-            }
-          } catch (e) {
-            resolve(null);
-          }
-        });
+        res.on('end', () => resolve({ statusCode: res.statusCode || 0, body: raw }));
       });
-      req.on('error', () => resolve(null));
+
+      req.on('error', reject);
+      if (options.body) req.write(options.body);
       req.end();
-    } catch (e) {
-      resolve(null);
+    } catch (error) {
+      reject(error);
     }
   });
 }
@@ -233,9 +227,61 @@ async function startServer() {
     })));
   });
 
+  app.delete('/api/clients/:id', (request, response) => {
+    try {
+      const id = Number(request.params.id);
+      // Borramos primero direcciones y pedidos por si fallan las claves foráneas
+      db.prepare('DELETE FROM client_addresses WHERE client_id = ?').run(id);
+      db.prepare('DELETE FROM clients WHERE id = ?').run(id);
+      db.save();
+      response.status(204).send();
+    } catch (error) {
+      response.status(500).json({ message: error.message });
+    }
+  });
+
   app.get('/api/clients/:id/addresses', (request, response) => {
     const addresses = db.prepare('SELECT * FROM client_addresses WHERE client_id = ? ORDER BY is_primary DESC, created_at DESC').all(request.params.id);
     response.json(addresses);
+  });
+
+  app.post('/api/clients/:id/addresses', (request, response) => {
+    const clientId = request.params.id;
+    const { label, address, barrio, reference, latitude, longitude } = request.body;
+    const result = db.prepare(`
+      INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(clientId, label || 'otra', address, barrio, reference || '', latitude ? Number(latitude) : null, longitude ? Number(longitude) : null);
+    db.save();
+    response.status(201).json({ id: result.lastInsertRowid });
+  });
+
+  app.patch('/api/addresses/:id', (request, response) => {
+    const { label, address, barrio, reference, latitude, longitude } = request.body;
+    db.prepare(`
+      UPDATE client_addresses 
+      SET label = ?, address = ?, barrio = ?, reference = ?, latitude = ?, longitude = ?
+      WHERE id = ?
+    `).run(label, address, barrio, reference, latitude ? Number(latitude) : null, longitude ? Number(longitude) : null, request.params.id);
+    db.save();
+    response.json({ ok: true });
+  });
+
+  app.delete('/api/addresses/:id', (request, response) => {
+    db.prepare('DELETE FROM client_addresses WHERE id = ? AND is_primary = 0').run(request.params.id);
+    db.save();
+    response.status(204).send();
+  });
+
+  app.patch('/api/addresses/:id/primary', (request, response) => {
+    db.transaction(() => {
+      const addr = db.prepare('SELECT client_id FROM client_addresses WHERE id = ?').get(request.params.id);
+      if (addr) {
+        db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = ?').run(addr.client_id);
+        db.prepare('UPDATE client_addresses SET is_primary = 1 WHERE id = ?').run(request.params.id);
+      }
+    })();
+    response.json({ ok: true });
   });
 
   app.get('/api/clients/:id/orders', (request, response) => {
@@ -300,56 +346,119 @@ async function startServer() {
       inputPoints.unshift({ id: 'depot', latitude: Number(depot.latitude), longitude: Number(depot.longitude) });
 
       const coordsStr = coords.join(';');
-      const url = `${OSRM_BASE_URL.replace(/\/$/, '')}/trip/v1/driving/${coordsStr}?source=first&roundtrip=false&geometries=geojson&overview=full&annotations=duration,distance`;
+      const baseUrl = OSRM_BASE_URL.replace(/\/$/, '');
+      const tableUrl = `${baseUrl}/table/v1/driving/${coordsStr}?annotations=duration,distance`;
+      const tableResult = await requestUrl(tableUrl);
+      const tableParsed = JSON.parse(tableResult.body || '{}');
 
-      https.get(url, (res) => {
-        let raw = '';
-        res.on('data', (chunk) => { raw += chunk; });
-        res.on('end', () => {
-          try {
-            const parsed = JSON.parse(raw);
-            if (!parsed || !Array.isArray(parsed.trips) || !parsed.trips.length) {
-              return response.status(500).json({ message: 'OSRM no devolvió una ruta optimizada.' });
-            }
-
-            const trip = parsed.trips[0];
-            // Determinar orden de waypoints en el trip
-            let orderIndices = [];
-            if (Array.isArray(trip.waypoint_order)) {
-              orderIndices = trip.waypoint_order;
-            } else if (Array.isArray(trip.waypoint_indices)) {
-              orderIndices = trip.waypoint_indices;
-            } else if (Array.isArray(parsed.waypoints)) {
-              // parsed.waypoints may contain waypoint_index mapping
-              const mapping = [];
-              parsed.waypoints.forEach((wp, i) => {
-                if (typeof wp.waypoint_index === 'number') mapping[wp.waypoint_index] = i;
-              });
-              orderIndices = mapping.filter(x => typeof x === 'number');
-            }
-
-            // If we couldn't find explicit order, fall back to identity (input order)
-            if (!orderIndices.length) orderIndices = inputPoints.map((_, i) => i);
-
-            // Map indices back to inputPoints. Skip depot (index 0) when returning sequence
-            const optimized = orderIndices.map(i => inputPoints[i]).filter(p => p && p.id !== 'depot');
-
-            response.json({
-              optimized: true,
-              distanceKm: (trip.distance || 0) / 1000,
-              durationMin: Math.round((trip.duration || 0) / 60),
-              geometry: trip.geometry || null,
-              sequence: optimized
-            });
-          } catch (e) {
-            response.status(500).json({ message: 'Error parseando respuesta de OSRM.' });
-          }
+      if (tableResult.statusCode >= 400) {
+        return response.status(502).json({
+          message: 'OSRM table respondió con error.',
+          statusCode: tableResult.statusCode,
+          body: tableResult.body
         });
-      }).on('error', (err) => {
-        response.status(500).json({ message: 'Error contactando OSRM.', error: err.message });
+      }
+
+      if (!tableParsed || !Array.isArray(tableParsed.durations)) {
+        return response.status(502).json({
+          message: 'OSRM no devolvió matriz de tiempos.',
+          body: tableResult.body
+        });
+      }
+
+      const nodeCount = inputPoints.length;
+      const durations = tableParsed.durations;
+      const visited = new Set([0]);
+      const orderIndices = [0];
+
+      while (orderIndices.length < nodeCount) {
+        const currentIndex = orderIndices[orderIndices.length - 1];
+        let nextIndex = -1;
+        let bestDuration = Number.POSITIVE_INFINITY;
+
+        for (let candidate = 1; candidate < nodeCount; candidate += 1) {
+          if (visited.has(candidate)) continue;
+          const durationValue = durations[currentIndex] && Number.isFinite(durations[currentIndex][candidate])
+            ? durations[currentIndex][candidate]
+            : Number.POSITIVE_INFINITY;
+          if (durationValue < bestDuration) {
+            bestDuration = durationValue;
+            nextIndex = candidate;
+          }
+        }
+
+        if (nextIndex === -1) {
+          for (let candidate = 1; candidate < nodeCount; candidate += 1) {
+            if (!visited.has(candidate)) {
+              nextIndex = candidate;
+              break;
+            }
+          }
+        }
+
+        if (nextIndex === -1) break;
+        visited.add(nextIndex);
+        orderIndices.push(nextIndex);
+      }
+
+      const optimizedBase = orderIndices.map(i => inputPoints[i]).filter(p => p && p.id !== 'depot');
+
+      const legCoords = [inputPoints[0], ...optimizedBase].map(p => `${p.longitude},${p.latitude}`);
+      let totalDistance = 0;
+      let totalDuration = 0;
+      let geometryCoordinates = [];
+      const optimized = [];
+
+      for (let i = 0; i < legCoords.length - 1; i += 1) {
+        const segmentUrl = `${baseUrl}/route/v1/driving/${legCoords[i]};${legCoords[i + 1]}?overview=full&geometries=geojson`;
+        const segmentResult = await requestUrl(segmentUrl);
+        if (segmentResult.statusCode >= 400) {
+          return response.status(502).json({
+            message: 'OSRM route respondió con error.',
+            statusCode: segmentResult.statusCode,
+            body: segmentResult.body
+          });
+        }
+
+        const segmentParsed = JSON.parse(segmentResult.body || '{}');
+        const route = Array.isArray(segmentParsed.routes) ? segmentParsed.routes[0] : null;
+        if (!route) {
+          return response.status(502).json({
+            message: 'OSRM no devolvió un tramo válido.',
+            body: segmentResult.body
+          });
+        }
+
+        totalDistance += Number(route.distance || 0);
+        totalDuration += Number(route.duration || 0);
+
+        const currentStop = optimizedBase[i];
+        optimized.push({
+          ...currentStop,
+          segmentDistanceKm: route.distance ? Number(route.distance) / 1000 : 0,
+          segmentDurationMin: route.duration ? Number(route.duration) / 60 : 0,
+          cumulativeDistanceKm: totalDistance / 1000,
+          etaMinutes: totalDuration / 60
+        });
+
+        const coords = route.geometry && Array.isArray(route.geometry.coordinates) ? route.geometry.coordinates : [];
+        if (coords.length) {
+          if (geometryCoordinates.length) coords.shift();
+          geometryCoordinates = geometryCoordinates.concat(coords);
+        }
+      }
+
+      response.json({
+        optimized: true,
+        distanceKm: totalDistance / 1000,
+        durationMin: Math.round(totalDuration / 60),
+        geometry: geometryCoordinates.length ? { type: 'LineString', coordinates: geometryCoordinates } : null,
+        sequence: optimized,
+        source: 'osrm-table+route'
       });
     } catch (e) {
-      response.status(500).json({ message: 'Error interno optimizando ruta.' });
+      console.error('Error interno optimizando ruta:', e);
+      response.status(500).json({ message: 'Error interno optimizando ruta.', error: e.message });
     }
   });
 
@@ -388,9 +497,9 @@ async function startServer() {
           }
 
           const insertAddr = db.prepare(`
-            INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(clientId, request.body.label || 'principal', address, barrio, reference, request.body.setPrimaryAddress === false ? 0 : 1);
+            INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(clientId, request.body.label || 'principal', address, barrio, reference, request.body.setPrimaryAddress === false ? 0 : 1, request.body.latitude ? Number(request.body.latitude) : null, request.body.longitude ? Number(request.body.longitude) : null);
           insertedAddressId = insertAddr.lastInsertRowid;
         }
 
@@ -402,23 +511,6 @@ async function startServer() {
         return { client, primaryAddress, insertedAddressId };
       })();
       response.json(result);
-
-      // Asincrónicamente intentar geocodificar la dirección insertada y actualizar la BD
-      if (result.insertedAddressId && result.primaryAddress && result.primaryAddress.address) {
-        (async () => {
-          try {
-            const text = `${result.primaryAddress.address} ${result.primaryAddress.barrio}`;
-            const geo = await geocodeAddress(text);
-            if (geo) {
-              db.prepare('UPDATE client_addresses SET latitude = ?, longitude = ? WHERE id = ?')
-                .run(geo.lat, geo.lon, result.insertedAddressId);
-              db.save();
-            }
-          } catch (e) {
-            console.error('Geocode async error (clients):', e);
-          }
-        })();
-      }
     } catch (error) {
       response.status(400).json({ message: error.message });
     }
@@ -602,8 +694,8 @@ async function startServer() {
           clientId = clientResult.lastInsertRowid;
 
           if (clientData.address) {
-            db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary) VALUES (?, ?, ?, ?, ?, ?)')
-              .run(clientId, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), 1);
+            db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+              .run(clientId, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), 1, clientData.latitude ? Number(clientData.latitude) : null, clientData.longitude ? Number(clientData.longitude) : null);
           }
         }
 
@@ -625,8 +717,8 @@ async function startServer() {
 
         // 4. Crear Pedido
         const orderResult = db.prepare(`
-          INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone, latitude, longitude)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           clientId,
           driverId,
@@ -637,7 +729,9 @@ async function startServer() {
           String(clientData.reference || '').trim(),
           String(clientData.notes || '').trim(),
           total,
-          String(clientData.barrio || '').trim()
+          String(clientData.barrio || '').trim(),
+          clientData.latitude ? Number(clientData.latitude) : null,
+          clientData.longitude ? Number(clientData.longitude) : null
         );
 
         const orderId = orderResult.lastInsertRowid;
@@ -659,25 +753,56 @@ async function startServer() {
         return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
       })();
 
-      // Intentar geocodificar la dirección del pedido y actualizar las columnas
-      (async () => {
-        try {
-          const addrText = `${createdOrder.address || ''} ${createdOrder.barrio || ''}`.trim();
-          const geo = await geocodeAddress(addrText);
-          if (geo) {
-            db.prepare('UPDATE orders SET latitude = ?, longitude = ? WHERE id = ?')
-              .run(geo.lat, geo.lon, createdOrder.id);
-            db.save();
-          }
-        } catch (e) {
-          console.error('Geocode async error (orders):', e);
-        }
-      })();
-
       const routeSuggestion = createRouteSuggestion(db, createdOrder.id);
       response.status(201).json({ order: createdOrder, routeSuggestion });
     } catch (error) {
       console.error('Error creando pedido:', error);
+      response.status(400).json({ message: error.message });
+    }
+  });
+
+  app.delete('/api/orders/:id', (request, response) => {
+    const id = Number(request.params.id);
+    db.prepare('DELETE FROM orders WHERE id = ?').run(id);
+    db.save();
+    response.status(204).send();
+  });
+
+  app.patch('/api/orders/:id', async (request, response) => {
+    try {
+      const orderId = Number(request.params.id);
+      db.transaction(() => {
+        const clientData = request.body.client || {};
+        const items = Array.isArray(request.body.items) ? request.body.items : [];
+        const paymentMethod = String(request.body.paymentMethod || 'Efectivo').trim();
+        const driverId = request.body.driverId ? Number(request.body.driverId) : null;
+        const notes = String(request.body.notes || '').trim();
+
+        const productLookup = db.prepare('SELECT * FROM products WHERE id = ?');
+        const total = items.reduce((sum, item) => {
+          const product = productLookup.get(item.productId);
+          return sum + (product ? (Number(product.price) * item.quantity) : 0);
+        }, 0);
+
+        db.prepare(`
+          UPDATE orders 
+          SET driver_id = ?, payment_method = ?, barrio = ?, address = ?, reference = ?, notes = ?, total = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(driverId, paymentMethod, clientData.barrio, clientData.address, clientData.reference, notes, total, orderId);
+
+        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(orderId);
+        items.forEach(item => {
+          const product = productLookup.get(item.productId);
+          if (product) {
+            db.prepare(`
+              INSERT INTO order_items (order_id, product_id, name_snapshot, quantity, unit_price, line_total)
+              VALUES (?, ?, ?, ?, ?, ?)
+            `).run(orderId, product.id, product.name, item.quantity, product.price, product.price * item.quantity);
+          }
+        });
+      })();
+      response.json({ ok: true });
+    } catch (error) {
       response.status(400).json({ message: error.message });
     }
   });
@@ -712,6 +837,7 @@ async function startServer() {
 
   app.get('/api/routes/suggest', (request, response) => {
     const driverId = request.query.driverId ? Number(request.query.driverId) : null;
+    const maxPerRoute = toNumber(request.query.maxPerRoute) || 5;
     const orders = db.prepare(`
       SELECT o.id, o.barrio, o.address, o.status, o.total, c.name AS client_name
       FROM orders o
@@ -719,11 +845,29 @@ async function startServer() {
       WHERE o.status IN ('listo para salir', 'en ruta')
       ORDER BY o.barrio ASC, datetime(o.created_at) ASC
     `).all();
-    // Incluir lat/lng si están disponibles
-    // Re-query para incluir coords
+
+    // Obtener ítems para estos pedidos
+    const orderIds = orders.map(o => o.id);
+    let itemsByOrder = {};
+    if (orderIds.length > 0) {
+      itemsByOrder = db.prepare(`
+        SELECT oi.* FROM order_items oi 
+        WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')})
+      `).all(orderIds).reduce((acc, item) => {
+        if (!acc[item.order_id]) acc[item.order_id] = [];
+        acc[item.order_id].push(item);
+        return acc;
+      }, {});
+    }
+
     const ordersWithCoords = orders.map(o => {
       const extra = db.prepare('SELECT latitude, longitude FROM orders WHERE id = ?').get(o.id) || {};
-      return { ...o, latitude: extra.latitude, longitude: extra.longitude };
+      return { 
+        ...o, 
+        latitude: extra.latitude, 
+        longitude: extra.longitude,
+        items: itemsByOrder[o.id] || []
+      };
     });
 
     const grouped = ordersWithCoords.reduce((accumulator, order) => {
@@ -735,10 +879,23 @@ async function startServer() {
       return accumulator;
     }, {});
 
+    const suggestedRoutes = [];
+    Object.entries(grouped).forEach(([barrio, barrioOrders]) => {
+      // Dividir los pedidos de la zona en grupos según el máximo permitido
+      for (let i = 0; i < barrioOrders.length; i += maxPerRoute) {
+        suggestedRoutes.push({
+          id: `route-${barrio}-${i}`,
+          zone: barrio,
+          orders: barrioOrders.slice(i, i + maxPerRoute)
+        });
+      }
+    });
+
     response.json({
       driverId,
       grouped,
-      sequence: Object.entries(grouped).flatMap(([barrio, barrioOrders]) => barrioOrders.map((order) => ({ ...order, barrio })))
+      suggestedRoutes,
+      sequence: suggestedRoutes.length > 0 ? suggestedRoutes[0].orders : []
     });
   });
 
@@ -756,6 +913,7 @@ async function startServer() {
       const driverId = request.body.driverId ? Number(request.body.driverId) : null;
       const orderIds = Array.isArray(request.body.orderIds) ? request.body.orderIds.map(Number).filter(Boolean) : [];
       const route = Array.isArray(request.body.route) ? request.body.route : [];
+      const routeSummary = request.body.routeSummary && typeof request.body.routeSummary === 'object' ? request.body.routeSummary : null;
 
       if (!driverId || !orderIds.length) {
         return response.status(400).json({ message: 'driverId y orderIds son requeridos para asignar una ruta.' });
@@ -779,18 +937,29 @@ async function startServer() {
 
         // Persistir una sugerencia de ruta (referencia al primer pedido)
         const firstOrderId = orderIds[0] || 0;
-        const distanceKm = Math.max(orderIds.length, 1) * 2.4;
-        const etaMinutes = Math.max(orderIds.length, 1) * 8;
+        const distanceKm = routeSummary && Number.isFinite(Number(routeSummary.distanceKm))
+          ? Number(routeSummary.distanceKm)
+          : Math.max(orderIds.length, 1) * 2.4;
+        const etaMinutes = routeSummary && Number.isFinite(Number(routeSummary.durationMin))
+          ? Number(routeSummary.durationMin)
+          : Math.max(orderIds.length, 1) * 8;
+        const enrichedRoute = route.map((item, index) => ({
+          ...item,
+          sequenceIndex: index + 1
+        }));
 
         const insert = db.prepare(`
           INSERT INTO route_suggestions (order_id, driver_id, barrio_group, route_json, distance_km, eta_minutes)
           VALUES (?, ?, ?, ?, ?, ?)
-        `).run(firstOrderId, driverId, '', JSON.stringify(route), distanceKm, etaMinutes);
+        `).run(firstOrderId, driverId, '', JSON.stringify(enrichedRoute), distanceKm, etaMinutes);
 
         return {
           routeSuggestionId: insert.lastInsertRowid,
           assignedOrders: orderIds,
-          driverId
+          driverId,
+          distanceKm,
+          etaMinutes,
+          routeSummary: routeSummary || null
         };
       })();
 

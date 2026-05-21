@@ -1,15 +1,14 @@
-version: '3.7'
-
 services:
   osrm:
     image: osrm/osrm-backend:latest
     container_name: sisped-osrm
     volumes:
-      - osrm_data:/data
+      - sisped_osrmdata:/data
     ports:
       - "5000:5000"
     command: ["osrm-routed", "--port", "5000", "/data/region.osrm"]
     restart: unless-stopped
 
 volumes:
-  osrm_data:
+  sisped_osrmdata:
+    name: sisped_osrmdata

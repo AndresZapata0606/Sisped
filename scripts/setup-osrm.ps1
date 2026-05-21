@@ -53,15 +53,6 @@ function Resolve-AbsolutePath {
   return [System.IO.Path]::GetFullPath($Path)
 }
 
-function Get-ProjectVolumeName {
-  param([Parameter(Mandatory = $true)][string]$Suffix)
-
-  $project = Split-Path -Leaf (Resolve-AbsolutePath (Join-Path $scriptRoot '..'))
-  $cleanProject = ($project -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-  $cleanSuffix = ($Suffix -replace '[^a-zA-Z0-9]', '').ToLowerInvariant()
-  return "${cleanProject}_${cleanSuffix}"
-}
-
 $DataDir = Resolve-AbsolutePath $DataDir
 $DockerComposeFile = Resolve-AbsolutePath $DockerComposeFile
 
@@ -78,7 +69,7 @@ if (-not (Test-Path $DataDir)) {
 $pbfPath = Resolve-AbsolutePath (Join-Path $DataDir $PbfFileName)
 $osrmBaseName = [System.IO.Path]::GetFileNameWithoutExtension([System.IO.Path]::GetFileNameWithoutExtension($PbfFileName))
 $osrmFileName = "$osrmBaseName.osrm"
-$volumeName = Get-ProjectVolumeName -Suffix 'osrm_data'
+$volumeName = 'sisped_osrmdata'
 Write-Host "Datos OSRM: $DataDir"
 Write-Host "PBF:        $pbfPath"
 Write-Host "Compose:    $DockerComposeFile"
