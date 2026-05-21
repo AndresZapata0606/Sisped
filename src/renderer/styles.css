@@ -27,7 +27,7 @@
   --small-text: 12px;
 
   /* Layout */
-  --sidebar-width: 286px;
+  --sidebar-width: 320px;
   --content-padding: 28px;
   --grid-gap: 18px;
   --section-spacing: 24px;
@@ -116,13 +116,18 @@ body {
   position: sticky;
   top: 0;
   height: 100vh;
-  padding: 22px;
+  padding: 18px;
   border-right: 1px solid rgba(148, 163, 184, 0.12);
-  background: rgba(5, 9, 18, 0.92);
+  background:
+    radial-gradient(circle at top left, rgba(245, 158, 11, 0.12), transparent 24%),
+    linear-gradient(180deg, rgba(8, 17, 32, 0.98) 0%, rgba(5, 9, 18, 0.94) 100%);
   backdrop-filter: blur(18px);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .dashboard {
@@ -138,6 +143,10 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
+  padding: 14px 14px 14px 12px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(148, 163, 184, 0.1);
 }
 
 .brand-mark {
@@ -162,15 +171,122 @@ body {
   font-size: 0.88rem;
 }
 
+.sidebar-brand-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar-live-pill {
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #d1fae5;
+  background: rgba(34, 197, 94, 0.14);
+  border: 1px solid rgba(34, 197, 94, 0.22);
+}
+
+.sidebar-section-label {
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 0 4px;
+}
+
+.sidebar-snapshot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.sidebar-snapshot-item {
+  padding: 10px 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  text-align: center;
+}
+
+.sidebar-snapshot-item strong {
+  display: block;
+  font-size: 16px;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.sidebar-snapshot-item span {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .sidebar-nav {
   display: grid;
-  gap: 10px;
+  gap: 7px;
+  padding: 2px;
 }
 
 .nav-item {
   text-align: left;
-  background: rgba(15, 23, 42, 0.56);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(15, 23, 42, 0.48);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  border-radius: 16px;
+  padding: 12px 12px 12px 10px;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.nav-item:hover {
+  transform: translateX(2px);
+  border-color: rgba(245, 158, 11, 0.25);
+  background: rgba(245, 158, 11, 0.08);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+}
+
+.nav-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.nav-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-copy strong {
+  font-size: 13px;
+  line-height: 1.1;
+}
+
+.nav-copy small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.nav-item.active .nav-icon {
+  color: var(--accent);
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.22);
 }
 
 .nav-item.active {
@@ -185,12 +301,38 @@ body {
   box-shadow: inset 4px 0 0 0 var(--accent), 0 8px 24px rgba(0, 0, 0, 0.15);
 }
 
+.sidebar-quick-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.sidebar-action {
+  border-radius: 14px;
+  padding: 11px 14px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-button);
+}
+
+.sidebar-action.primary {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #0b1020;
+}
+
+.sidebar-action.secondary {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(148, 163, 184, 0.14);
+  color: var(--text-primary);
+}
+
 .sidebar-status {
   margin-top: auto;
-  padding: 16px;
-  border-radius: 18px;
-  background: rgba(15, 23, 42, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid rgba(148, 163, 184, 0.14);
 }
 
 .sidebar-status strong {
@@ -201,7 +343,8 @@ body {
 .sidebar-status p {
   margin: 0;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.4;
+  font-size: 12px;
 }
 
 .topbar {
@@ -410,6 +553,57 @@ body {
   color: #fff;
   font-weight: 700;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  /* Center the marker content so the element's center aligns with the LatLng */
+  transform: translate(-50%, -50%);
+}
+
+.map-debug-overlay {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(139,92,246,0.95);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.leaflet-debug-marker {
+  width: 10px;
+  height: 10px;
+  background: #8b5cf6;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+.order-marker-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  position: relative;
+}
+
+.order-marker-divicon {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 36px !important;
+  height: 36px !important;
+  border-radius: 50% !important;
+  background: #f59e0b !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.25) !important;
 }
 
 .route-stop-body strong {
@@ -2289,11 +2483,23 @@ button.primary:hover {
   display: flex;
   align-items: center;
   width: 100%;
+  z-index: 50;
+  overflow: visible;
+  isolation: isolate;
   transition: all 0.2s ease;
 }
 
 .input-with-loader input {
   padding-right: 40px !important;
+}
+
+.input-with-loader gmp-place-autocomplete,
+.input-with-loader gm-place-autocomplete,
+.input-with-loader .modern-autocomplete {
+  position: relative;
+  z-index: 10050;
+  display: block;
+  width: 100%;
 }
 
 .input-with-loader.loading {
@@ -2360,13 +2566,26 @@ button.primary:hover {
   display: none; /* Se muestra solo cuando hay coordenadas */
 }
 
+/* Asegurar que las sugerencias de Google queden por encima del modal */
+.pac-container {
+  z-index: 10000 !important;
+  font-family: var(--font-family);
+  border-radius: 0 0 12px 12px;
+  border: 1px solid var(--panel-border);
+  background-color: var(--bg-top);
+}
+
 /* Estilos para el nuevo componente modernizado de Google Places */
+gmp-place-autocomplete,
 gm-place-autocomplete {
   width: 100%;
   display: block;
   margin-bottom: 4px;
+  position: relative;
+  z-index: 10050;
 }
 
+gmp-place-autocomplete::part(input),
 gm-place-autocomplete::part(input) {
   width: 100%;
   border-radius: 14px;
@@ -2382,12 +2601,14 @@ gm-place-autocomplete::part(input) {
   box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
 }
 
+gmp-place-autocomplete::part(input):focus,
 gm-place-autocomplete::part(input):focus {
   border-color: var(--accent);
   background: rgba(0, 0, 0, 0.3);
   box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
 }
 
+gmp-place-autocomplete::part(input):focus,
 gm-place-autocomplete::part(input):focus {
   border-color: var(--accent);
 }
@@ -2756,7 +2977,7 @@ gm-place-autocomplete::part(input):focus {
 
 @media (max-width: 1200px) {
   .app-shell {
-    grid-template-columns: 240px minmax(0, 1fr);
+    grid-template-columns: 260px minmax(0, 1fr);
   }
 
   .kpi-grid {
@@ -2793,10 +3014,20 @@ gm-place-autocomplete::part(input):focus {
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
-    width: min(86vw, 300px);
+    width: min(88vw, 320px);
     transform: translateX(-102%);
     transition: transform 0.2s ease;
     z-index: 20;
+  }
+
+  .sidebar-snapshot {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sidebar-brand p,
+  .nav-copy small,
+  .sidebar-status p {
+    font-size: 11px;
   }
 
   body.sidebar-open .sidebar {
@@ -3056,14 +3287,36 @@ gm-place-autocomplete::part(input):focus {
   border-radius: 20px;
   width: 96%;
   max-width: 920px;
-  max-height: 92vh;
-  overflow-y: auto;
+  /* Allow modal to grow with content and avoid internal scrollbars */
+  overflow: visible;
   padding: 26px;
   box-shadow:
     0 40px 100px rgba(2, 6, 12, 0.75),
     inset 0 1px 0 rgba(255, 255, 255, 0.02);
   animation: modal-pop 0.3s ease-out;
   z-index: 2001;
+}
+
+.modal-content .order-modal-grid,
+.modal-content .order-modal-left,
+.modal-content .order-modal-right {
+  overflow: visible;
+}
+
+.modal-content .order-modal-left > .panel {
+  position: relative;
+}
+
+.modal-content .order-modal-left > .panel:first-of-type {
+  z-index: 20;
+}
+
+.modal-content .order-modal-left > .panel:nth-of-type(2) {
+  z-index: 1;
+}
+
+.modal-content .order-modal-left > .panel.autocomplete-open {
+  margin-bottom: 160px;
 }
 
 .modal-content.wide {
@@ -3076,16 +3329,30 @@ gm-place-autocomplete::part(input):focus {
   display: grid;
   grid-template-columns: 1fr 380px;
   gap: 18px;
+  align-items: stretch;
 }
 .order-modal-left {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  position: relative;
+  z-index: 1;
 }
 .order-modal-right {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  justify-content: space-between;
+  min-height: 100%;
+}
+.order-modal-left > .section {
+  position: relative;
+}
+.order-modal-left > .section:first-child {
+  z-index: 3;
+}
+.order-modal-left > .section:last-child {
+  z-index: 1;
 }
 .section {
   background: rgba(255, 255, 255, 0.02);
@@ -3180,6 +3447,7 @@ gm-place-autocomplete::part(input):focus {
   border-radius: 12px;
   padding: 12px;
   border: 1px solid var(--panel-border);
+  margin-top: auto;
 }
 .summary-row {
   display: flex;
@@ -3272,6 +3540,49 @@ gm-place-autocomplete::part(input):focus {
 .btn-primary:hover {
   background: linear-gradient(135deg, #f97316, #fb923c);
   transform: translateY(-2px);
+}
+
+/* Alinear botones en formularios inline para evitar que crezcan verticalmente */
+.order-modal-right .inline-form.wrap {
+  grid-template-columns: minmax(0, 1fr) 72px auto;
+  align-items: center;
+}
+
+.order-modal-right .inline-form.wrap select,
+.order-modal-right .inline-form.wrap input {
+  min-width: 0;
+}
+
+.order-modal-right .inline-form.wrap button,
+.order-modal-right .inline-form.wrap .btn-primary {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+/* Animación para pedidos con más de 30 minutos */
+.overdue-blink {
+  animation: blink-red 1.5s infinite alternate;
+}
+
+@keyframes blink-red {
+  0% {
+    background-color: transparent;
+    border-color: transparent;
+  }
+  50% {
+    background-color: rgba(239, 68, 68, 0.15); /* Rojo suave */
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  100% {
+    background-color: transparent;
+    border-color: transparent;
+  }
+}
+.inline-form.wrap button,
+.inline-form.wrap .btn-primary {
+  align-self: center;
+  height: 40px;
+  padding: 8px 12px;
 }
 
 /* --- Tabs --- */

@@ -13,6 +13,15 @@
     <!-- Leaflet CSS para Mapas -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- Leaflet Draw para dibujar polígonos -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+
+    
+    <!-- Inteligencia Espacial y Heatmaps -->
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
   </head>
   <body>
@@ -20,21 +29,67 @@
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
           <span class="brand-mark">SW</span>
-          <div>
+          <div class="sidebar-brand-copy">
             <strong>Shadday Wok</strong>
             <p>Dashboard operativo</p>
           </div>
+          <span class="sidebar-live-pill">Live</span>
         </div>
 
+        <div class="sidebar-snapshot" aria-label="Resumen lateral">
+          <div class="sidebar-snapshot-item">
+            <strong id="sidebarOrdersCount">0</strong>
+            <span>Pedidos</span>
+          </div>
+          <div class="sidebar-snapshot-item">
+            <strong id="sidebarDriversCount">0</strong>
+            <span>Domis</span>
+          </div>
+          <div class="sidebar-snapshot-item">
+            <strong id="sidebarClientsCount">0</strong>
+            <span>Clientes</span>
+          </div>
+        </div>
+
+        <div class="sidebar-section-label">Operación</div>
         <nav class="sidebar-nav">
-          <button type="button" class="nav-item active" data-target="overview">Resumen</button>
-          <button type="button" class="nav-item" data-target="orders">Comanda</button>
-          <button type="button" class="nav-item" data-target="clients">Clientes</button>
-          <button type="button" class="nav-item" data-target="catalog">Productos</button>
-          <button type="button" class="nav-item" data-target="drivers">Domiciliarios</button>
-          <button type="button" class="nav-item" data-target="routes">Rutas</button>
-          <button type="button" class="nav-item" data-target="analytics">Estadisticas</button>
+          <button type="button" class="nav-item active" data-target="overview">
+            <span class="nav-icon material-symbols-rounded">space_dashboard</span>
+            <span class="nav-copy"><strong>Resumen</strong><small>Indicadores y actividad</small></span>
+          </button>
+          <button type="button" class="nav-item" data-target="orders">
+            <span class="nav-icon material-symbols-rounded">receipt_long</span>
+            <span class="nav-copy"><strong>Comanda</strong><small>Nueva o en curso</small></span>
+          </button>
+          <button type="button" class="nav-item" data-target="clients">
+            <span class="nav-icon material-symbols-rounded">group</span>
+            <span class="nav-copy"><strong>Clientes</strong><small>Historial y direcciones</small></span>
+          </button>
+          <button type="button" class="nav-item" data-target="catalog">
+            <span class="nav-icon material-symbols-rounded">inventory_2</span>
+            <span class="nav-copy"><strong>Productos</strong><small>Catálogo y combos</small></span>
+          </button>
+          <button type="button" class="nav-item" data-target="drivers">
+            <span class="nav-icon material-symbols-rounded">delivery_dining</span>
+            <span class="nav-copy"><strong>Domiciliarios</strong><small>Estado operativo</small></span>
+          </button>
+          <button type="button" class="nav-item" data-target="route-history">
+            <span class="nav-icon material-symbols-rounded">history</span>
+            <span class="nav-copy"><strong>Historial Rutas</strong><small>Trayectos previos</small></span>
+          </button>
+          <button type="button" class="nav-item" data-target="routes">
+            <span class="nav-icon material-symbols-rounded">route</span>
+            <span class="nav-copy"><strong>Rutas</strong><small>Optimización y mapa</small></span>
+          </button>
+          <button type="button" class="nav-item" data-target="analytics">
+            <span class="nav-icon material-symbols-rounded">insights</span>
+            <span class="nav-copy"><strong>Estadísticas</strong><small>Rendimiento y ventas</small></span>
+          </button>
         </nav>
+
+        <div class="sidebar-quick-actions">
+          <button type="button" id="sidebarNewOrderBtn" class="sidebar-action primary">Nueva comanda</button>
+        </div>
 
         <div class="sidebar-status">
           <div style="display:flex; gap:12px; align-items:center;">
@@ -151,6 +206,24 @@
                     <p class="muted-small">Catálogo listo para la comanda</p>
                   </div>
                 </article>
+              </div>
+            </section>
+
+            <!-- Configuración de Geocodificación -->
+            <section class="operation-panel" style="margin-top: 18px;">
+              <div class="operation-header">
+                <h3>Preferencias de Mapas</h3>
+              </div>
+              <div style="display: flex; gap: 24px; align-items: center; padding: 12px;">
+                <div class="stack-form" style="flex: 1;">
+                  <label class="subtle">Proveedor de Geocodificación</label>
+                  <select id="geocodingProviderSelect" style="background: rgba(0,0,0,0.25); border: 1px solid var(--panel-border); color: var(--text-primary); cursor: pointer;">
+                    <option value="auto">Automático (Google -> Nominatim)</option>
+                    <option value="google">Solo Google Maps (Preciso)</option>
+                    <option value="nominatim">Solo Nominatim (Gratuito/OSM)</option>
+                  </select>
+                </div>
+                <p class="muted-small" style="flex: 2; margin-top: 20px;">Controla cómo el sistema busca las coordenadas. El modo automático intenta primero con Google y usa Nominatim como respaldo si falla.</p>
               </div>
             </section>
 
@@ -566,8 +639,8 @@
           <section class="view-panel" id="driversView" data-view="drivers" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Logística</p>
-                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Equipo de Reparto</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Personal Operativo</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Gestión de Domiciliarios</h2>
               </div>
               <button type="button" id="openDriverModal" class="primary" style="display: flex; align-items: center; gap: 8px; font-weight: 600; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);">
                 <span class="material-symbols-rounded" style="font-size: 20px;">person_add</span> + Nuevo Domiciliario
@@ -575,14 +648,17 @@
             </div>
 
             <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              
+              <!-- KPIs Domiciliarios SaaS -->
               <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
                 <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
                   <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
                     <span class="material-symbols-rounded" style="font-size: 28px;">sports_motorsports</span>
                   </div>
                   <div class="kpi-body">
-                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Total Equipo</div>
+                    <div class="kpi-label" style="font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase;">Total Flota</div>
                     <div class="kpi-value" id="kpiTotalDrivers" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" style="font-size: 11px;">Personal registrado</div>
                   </div>
                 </div>
                 <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
@@ -590,8 +666,9 @@
                     <span class="material-symbols-rounded" style="font-size: 28px;">bolt</span>
                   </div>
                   <div class="kpi-body">
-                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">En Turno</div>
+                    <div class="kpi-label" style="font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase;">En Turno</div>
                     <div class="kpi-value" id="kpiActiveDrivers" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" style="font-size: 11px;">Disponibles / En ruta</div>
                   </div>
                 </div>
                 <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
@@ -599,14 +676,25 @@
                     <span class="material-symbols-rounded" style="font-size: 28px;">delivery_dining</span>
                   </div>
                   <div class="kpi-body">
-                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">En Ruta</div>
+                    <div class="kpi-label" style="font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase;">Entregando</div>
                     <div class="kpi-value" id="kpiOnRouteDrivers" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" style="font-size: 11px;">Pedidos en trayecto</div>
                   </div>
                 </div>
               </section>
 
               <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; width: 100%;">
-                <div id="driversList" class="mini-list" style="width: 100%; max-width: 100%; display: flex; flex-direction: column; gap: 24px;"></div>
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+                  <div>
+                    <h3 style="font-size: 18px; font-weight: 700;">Listado de Domiciliarios</h3>
+                    <div class="subtle" style="font-size: 12px; margin-top: 2px;">Control de actividad y disponibilidad</div>
+                  </div>
+                  <div style="position: relative; width: 280px;">
+                    <span class="material-symbols-rounded" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--muted);">search</span>
+                    <input type="text" id="driverSearchInput" placeholder="Buscar por nombre o zona..." style="width: 100%; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px 10px 38px; color: var(--text-primary); font-size: 13px;" />
+                  </div>
+                </div>
+                <div id="driversList" class="mini-list" style="width: 100%; max-width: 100%;"></div>
               </div>
             </div>
           </section>
@@ -615,68 +703,91 @@
           <section class="view-panel" id="routesView" data-view="routes" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Logística</p>
-                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Mapa y Despacho Geocalizado</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Logística Inteligente</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Despacho Geocalizado</h2>
+              </div>
+              <div class="route-global-actions" style="display: flex; gap: 10px;">
+                <button type="button" id="routeRefreshBtn" class="mini-action" style="height: 42px; padding: 0 16px;"><span class="material-symbols-rounded" style="font-size: 18px;">refresh</span> Actualizar</button>
+                <button type="button" id="assignRouteBtn" class="primary" style="height: 42px; display: flex; align-items: center; gap: 8px; font-weight: 700;">
+                  <span class="material-symbols-rounded" style="font-size: 20px;">task_alt</span> Asignar Ruta
+                </button>
               </div>
             </div>
 
             <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
               
-              <!-- KPIs de Logística -->
+              <!-- KPIs de Logística SaaS -->
               <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
-                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px); transition: transform 0.2s ease;">
                   <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
-                    <span class="material-symbols-rounded" style="font-size: 28px;">forklift</span>
+                    <span class="material-symbols-rounded" style="font-size: 28px;">pending_actions</span>
                   </div>
                   <div class="kpi-body">
-                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Pedidos Listos</div>
+                    <div class="kpi-label" style="font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase;">Pendientes</div>
                     <div class="kpi-value" id="routeOrderCount" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-note" style="font-size: 11px;">Listos para salir</div>
                   </div>
                 </div>
-                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px); transition: transform 0.2s ease;">
                   <div class="kpi-avatar kpi-avatar-orange" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
-                    <span class="material-symbols-rounded" style="font-size: 28px;">location_city</span>
+                    <span class="material-symbols-rounded" style="font-size: 28px;">straighten</span>
                   </div>
                   <div class="kpi-body">
-                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Barrios</div>
-                    <div class="kpi-value" id="routeNeighborhoodCount" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0</div>
+                    <div class="kpi-label" style="font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase;">Recorrido</div>
+                    <div class="kpi-value" id="routeDistance" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0 km</div>
+                    <div class="kpi-note" style="font-size: 11px;">Extensión estimada</div>
                   </div>
                 </div>
-                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px);">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px; backdrop-filter: blur(10px); transition: transform 0.2s ease;">
                   <div class="kpi-avatar kpi-avatar-purple" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(168, 85, 247, 0.15); color: #a855f7;">
-                    <span class="material-symbols-rounded" style="font-size: 28px;">map</span>
+                    <span class="material-symbols-rounded" style="font-size: 28px;">schedule</span>
                   </div>
                   <div class="kpi-body">
-                    <div class="kpi-label" style="font-size: 14px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Distancia</div>
-                    <div class="kpi-value" id="routeDistance" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0 km</div>
+                    <div class="kpi-label" style="font-size: 13px; color: var(--muted); font-weight: 700; text-transform: uppercase;">Tiempo ETA</div>
+                    <div class="kpi-value" id="routeEta" style="font-size: 32px; font-weight: 800; margin: 4px 0; color: var(--text-primary);">0 min</div>
+                    <div class="kpi-note" style="font-size: 11px;">Promedio de entrega</div>
                   </div>
                 </div>
               </section>
 
               <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; width: 100%;">
                 <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
-                  <div class="route-controls" style="display: flex; gap: 12px; flex-wrap: wrap; align-items: center; width: 100%;">
-                    <select id="routeDriverSelect" style="min-width: 240px; background: rgba(0,0,0,0.25); border: 1px solid var(--panel-border); color: var(--text-primary);"></select>
-                    <select id="routeLimitSelect" title="Pedidos por ruta" style="min-width: 120px; background: rgba(0,0,0,0.25); border: 1px solid var(--panel-border); color: var(--text-primary);">
-                      <option value="3">3 por ruta</option>
-                      <option value="4">4 por ruta</option>
-                      <option value="5" selected>5 por ruta</option>
-                      <option value="6">6 por ruta</option>
-                    </select>
-                    <button type="button" id="routeRefreshBtn" class="mini-action">Actualizar</button>
-                    <button type="button" id="previewOptimizeBtn" class="mini-action">Optimizar</button>
-                    <button type="button" id="assignRouteBtn" class="primary" style="margin-left: auto;">Asignar Ruta</button>
+                  <div class="route-toolbar" style="display: flex; width: 100%; gap: 16px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 14px; border: 1px solid var(--panel-border); align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                      <span class="material-symbols-rounded" style="color: var(--muted); font-size: 20px;">sports_motorsports</span>
+                      <select id="routeDriverSelect" style="flex: 1; background: rgba(0,0,0,0.2); border: none; color: var(--text-primary); font-size: 13px;"></select>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px; border-left: 1px solid var(--panel-border); padding-left: 16px;">
+                      <span class="subtle" style="font-size: 12px;">Capacidad:</span>
+                      <select id="routeLimitSelect" style="background: rgba(0,0,0,0.2); border: none; color: var(--text-primary); font-size: 13px;">
+                        <option value="3">3 pedidos</option>
+                        <option value="4">4 pedidos</option>
+                        <option value="5" selected>5 pedidos</option>
+                        <option value="6">6 pedidos</option>
+                      </select>
+                    </div>
+                    <div style="display: flex; gap: 8px; border-left: 1px solid var(--panel-border); padding-left: 16px;">
+                      <button type="button" id="previewOptimizeBtn" class="mini-action" style="background: rgba(245, 158, 11, 0.1); border-color: rgba(245, 158, 11, 0.2); color: var(--accent);"><span class="material-symbols-rounded" style="font-size: 18px;">auto_fix_high</span> Optimizar</button>
+                      <button type="button" id="manageDangerousZonesBtn" class="mini-action"><span class="material-symbols-rounded" style="font-size: 18px;">security</span> Zonas</button>
+                    </div>
                   </div>
                 </div>
 
                 <div class="route-layout" style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 24px; min-height: 550px;">
-                  <div style="display: flex; flex-direction: column; gap: 16px;">
-                    <div id="routeMap" class="route-map" style="border-radius: 16px; border: 1px solid var(--panel-border); background: #07111f; flex-grow: 1;"></div>
-                    <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Rutas Sugeridas por Zona</h3>
-                    <div id="suggestedRoutesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;"></div>
+                  <div style="display: flex; flex-direction: column; gap: 20px;">
+                    <div id="routeMap" class="route-map" style="border-radius: 20px; border: 1px solid var(--panel-border); background: #07111f; flex-grow: 1; box-shadow: inset 0 0 40px rgba(0,0,0,0.5);"></div>
+                    <div>
+                      <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                        <span class="material-symbols-rounded" style="color: var(--accent); font-size: 20px;">explore</span> Sugerencias de Agrupación
+                      </h3>
+                      <div id="suggestedRoutesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;"></div>
+                    </div>
                   </div>
                   <div class="route-sequence-card" style="background: rgba(0,0,0,0.15); border: 1px solid var(--panel-border); border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 16px;">
-                    <h3 style="font-size: 16px; font-weight: 700; border-bottom: 1px solid var(--panel-border); padding-bottom: 12px; margin: 0;">Secuencia Sugerida</h3>
+                    <div style="border-bottom: 1px solid var(--panel-border); padding-bottom: 12px;">
+                      <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Secuencia de Entrega</h3>
+                      <div class="subtle" style="font-size: 11px; margin-top: 2px;">Orden optimizado para despacho rápido</div>
+                    </div>
                     <div id="routeSequence" class="route-sequence" style="overflow-y: auto; display: flex; flex-direction: column; gap: 12px;"></div>
                   </div>
                 </div>
@@ -684,42 +795,162 @@
             </div>
           </section>
 
-          <!-- VISTA: ANALYTICS -->
-          <section class="view-panel" id="analyticsView" data-view="analytics">
+          <!-- SECCIÓN DE HISTORIAL DE RUTAS -->
+          <section class="view-panel" id="routeHistoryView" data-view="route-history" style="width: 100%; max-width: 100%;">
             <div class="view-header">
               <div>
-                <p class="eyebrow">Estadisticas</p>
-                <h2>Dia, semana y mes</h2>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Logística</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Historial de Rutas Asignadas</h2>
               </div>
-              <p class="subtle">Resumen ejecutivo con indicadores y tendencia simple.</p>
             </div>
 
-            <section class="panel">
-              <div class="panel-header">
-                <h2>Estadísticas</h2>
-                <span>día / semana / mes</span>
+            <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; width: 100%;">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
+                  <h3 style="font-size: 18px; font-weight: 700;">Rutas Anteriores</h3>
+                  <div style="position: relative; width: 240px;">
+                    <span class="material-symbols-rounded" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--muted);">search</span>
+                    <input type="text" id="routeHistorySearchInput" placeholder="Buscar ruta..." style="width: 100%; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px 10px 38px; color: var(--text-primary); font-size: 13px;" />
+                  </div>
+                </div>
+                <div class="table-container" style="overflow-x: auto;">
+                  <table class="orders-table" id="deliveryRoutesTable" style="width: 100%; border-collapse: separate; border-spacing: 0;">
+                    <thead>
+                      <tr style="background: rgba(0,0,0,0.1);">
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">ID Ruta</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Domiciliario</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Pedidos</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: right; border-bottom: 1px solid var(--panel-border);">Distancia (km)</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: right; border-bottom: 1px solid var(--panel-border);">ETA (min)</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Asignada</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: center; border-bottom: 1px solid var(--panel-border);">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody id="deliveryRoutesList" style="font-size: 13px;">
+                      <!-- Renderizado reactivo desde app.js -->
+                    </tbody>
+                  </table>
+                </div>
+                <div class="table-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--panel-border); padding-top: 16px;">
+                  <div class="table-meta" style="font-size: 12px; color: var(--muted);">
+                    Mostrando <span id="deliveryRoutesTableRange" style="font-weight: 600; color: var(--text-primary);">0</span> de <span id="deliveryRoutesTableTotal" style="font-weight: 600; color: var(--text-primary);">0</span> rutas
+                  </div>
+                  <div class="pagination" id="deliveryRoutesPagination" style="display: flex; gap: 4px;">
+                    <!-- Se renderizan los números e interacciones desde JS -->
+                  </div>
+                </div>
               </div>
-              <form id="statsForm" class="inline-form stats-controls">
-                <select name="range">
-                  <option value="day">Día</option>
-                  <option value="week">Semana</option>
-                  <option value="month">Mes</option>
-                </select>
-                <input name="cutoffHour" type="number" min="0" max="23" value="20" placeholder="Hora de corte (0-23)" />
-                <button type="submit">Actualizar</button>
-              </form>
-              <div id="statsSummaryBanner" class="stats-summary-banner"></div>
-              <div class="stats-layout">
-                <section class="stats-card-block">
-                  <div class="section-title">Indicadores del período</div>
-                  <div id="statsCards" class="stats-cards stats-cards-compact"></div>
-                </section>
-                <section class="stats-card-block">
-                  <div class="section-title">Distribución por estado</div>
+            </div>
+          </section>
+
+          <!-- VISTA: ANALYTICS -->
+          <section class="view-panel" id="analyticsView" data-view="analytics" style="width: 100%; max-width: 100%;">
+            <div class="view-header">
+              <div>
+                <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Inteligencia</p>
+                <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Reportes y Rendimiento</h2>
+              </div>
+              <div class="stats-controls-wrapper" style="background: var(--panel-bg); padding: 8px; border-radius: 12px; border: 1px solid var(--panel-border); backdrop-filter: blur(10px);">
+                <form id="statsForm" class="inline-form" style="display: flex; gap: 12px; align-items: center;">
+                  <select name="range" style="background: rgba(0,0,0,0.2); border: none; color: var(--text-primary); font-size: 13px; cursor: pointer; padding: 8px 12px; border-radius: 8px;">
+                    <option value="day">Día actual</option>
+                    <option value="week">Última semana</option>
+                    <option value="month">Último mes</option>
+                  </select>
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <span class="subtle" style="font-size: 12px;">Corte:</span>
+                    <input name="cutoffHour" type="number" min="0" max="23" value="20" style="width: 60px; background: rgba(0,0,0,0.2); border: none; color: var(--text-primary); text-align: center; border-radius: 8px;" />
+                  </div>
+                  <button type="submit" class="primary" style="height: 38px; padding: 0 16px; font-size: 13px; border-radius: 8px;">Actualizar reporte</button>
+                </form>
+              </div>
+            </div>
+
+            <div class="orders-layout" style="display: flex; flex-direction: column; gap: 24px; margin-top: 16px; width: 100%;">
+              
+              <!-- KPIs de alto nivel con diseño SaaS -->
+              <section class="orders-kpis" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; width: 100%;">
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px;">
+                  <div class="kpi-avatar kpi-avatar-blue" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">leaderboard</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label">Volumen</div>
+                    <div class="kpi-value" id="statsTotalOrders" style="font-size: 32px; font-weight: 800;">0</div>
+                    <div class="kpi-note">Pedidos totales</div>
+                  </div>
+                </div>
+
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px;">
+                  <div class="kpi-avatar kpi-avatar-green" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(34, 197, 94, 0.15); color: #22c55e;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">payments</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label">Ventas Brutas</div>
+                    <div class="kpi-value" id="statsTotalSales" style="font-size: 28px; font-weight: 800;">$0</div>
+                    <div class="kpi-note">Ingreso acumulado</div>
+                  </div>
+                </div>
+
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px;">
+                  <div class="kpi-avatar kpi-avatar-purple" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">confirmation_number</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label">Ticket Promedio</div>
+                    <div class="kpi-value" id="statsAverageTicket" style="font-size: 28px; font-weight: 800;">$0</div>
+                    <div class="kpi-note">Valor por comanda</div>
+                  </div>
+                </div>
+
+                <div class="kpi-card" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 16px; padding: 22px; display: flex; align-items: center; gap: 20px;">
+                  <div class="kpi-avatar kpi-avatar-orange" style="width: 56px; height: 56px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                    <span class="material-symbols-rounded" style="font-size: 28px;">timer</span>
+                  </div>
+                  <div class="kpi-body">
+                    <div class="kpi-label">Tiempo Entrega</div>
+                    <div class="kpi-value" id="statsAverageDeliveryTime" style="font-size: 28px; font-weight: 800;">0 min</div>
+                    <div class="kpi-note">Promedio de cierre</div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- Distribución Operativa y Tops -->
+              <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 24px; width: 100%;">
+                
+                <!-- Gráfico de tendencia y estados -->
+                <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px;">
+                  <div class="panel-header" style="margin-bottom: 24px;">
+                    <h3 style="font-size: 18px; font-weight: 700;">Distribución Operativa</h3>
+                    <div class="subtle" id="statsPeriodRange">Cargando periodo...</div>
+                  </div>
                   <div id="statsTrend" class="stats-trend"></div>
-                </section>
+                  
+                  <!-- Desglose Secundario -->
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--panel-border);">
+                    <div style="background: rgba(0,0,0,0.15); padding: 16px; border-radius: 14px; border: 1px solid var(--panel-border);">
+                      <div class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700;">Exito de Entrega</div>
+                      <div id="statsSuccessRate" style="font-size: 24px; font-weight: 800; color: var(--success); margin-top: 4px;">0%</div>
+                      <div class="subtle" id="statsDeliveredOrders" style="font-size: 12px; margin-top: 2px;">0 entregados</div>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.15); padding: 16px; border-radius: 14px; border: 1px solid var(--panel-border);">
+                      <div class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700;">Tasa de Cancelación</div>
+                      <div id="statsCancelRate" style="font-size: 24px; font-weight: 800; color: var(--danger); margin-top: 4px;">0%</div>
+                      <div class="subtle" id="statsCancelledOrders" style="font-size: 12px; margin-top: 2px;">0 cancelados</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Tops y Rankings -->
+                <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px;">
+                  <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 24px;">Líderes del Período</h3>
+                  <div id="statsRankings" style="display: flex; flex-direction: column; gap: 20px;">
+                    <!-- Inyectado desde app.js -->
+                  </div>
+                </div>
               </div>
-            </section>
+
+            </div>
           </section>
         </div>
       </main>
@@ -769,6 +1000,9 @@
               <div class="stack-form">
                 <label class="subtle">Dirección</label>
                 <input name="address" type="text" placeholder="Calle / Carrera" required />
+                <button type="button" class="mini-action" id="validateClientAddressBtn" style="margin-top: 8px;">
+                  <span class="material-symbols-rounded" style="font-size: 16px;">location_searching</span> Validar
+                </button>
               </div>
               <div class="stack-form" style="grid-column: 1 / -1;">
                 <label class="subtle">Referencia</label>
@@ -794,89 +1028,129 @@
 
     <!-- Plantilla para el formulario de comanda -->
     <template id="orderFormTemplate">
-      <form id="orderForm" class="order-form modal-order-form">
+      <form id="orderForm" class="order-form modal-order-form" style="display: flex; flex-direction: column; gap: 20px;">
         <input type="hidden" name="latitude" />
         <input type="hidden" name="longitude" />
         <input type="hidden" name="barrio" />
-        <div class="order-modal-grid">
-          <div class="order-modal-left">
-            <div class="section numbered">
-              <div class="section-header"><div class="section-number">1</div><div class="section-title">Datos del cliente</div></div>
-              <div class="form-grid-modal">
+        <input type="hidden" name="geocodingSource" />
+        <div class="order-modal-grid" style="display: grid; grid-template-columns: 1fr 400px; gap: 24px;">
+          <div class="order-modal-left" style="display: flex; flex-direction: column; gap: 20px;">
+            <!-- Cliente y Ubicación -->
+            <div class="panel" style="background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 18px; padding: 20px;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(59, 130, 246, 0.1); color: #3b82f6; display: flex; align-items: center; justify-content: center;">
+                  <span class="material-symbols-rounded" style="font-size: 20px;">person_pin_circle</span>
+                </div>
+                <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Cliente y Ubicación</h3>
+              </div>
+              <div class="form-grid-modal" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
                 <div class="stack-form">
-                  <label class="subtle">Nombre del cliente</label>
-                  <input name="name" type="text" placeholder="Ej. Juan Pérez" required />
+                  <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Nombre</label>
+                  <input name="name" type="text" placeholder="Ej. Juan Pérez" required style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);" />
                 </div>
                 <div class="stack-form">
-                  <label class="subtle">Teléfono</label>
-                  <input name="phone" type="text" placeholder="300 000 0000" required />
+                  <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Teléfono</label>
+                  <input name="phone" type="text" placeholder="300 000 0000" required style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);" />
                 </div>
               </div>
-            </div>
-
-            <div class="section numbered">
-              <div class="section-header"><div class="section-number">2</div><div class="section-title">Información de entrega</div></div>
-              <div class="form-grid-modal">
-                <div class="stack-form">
-                  <label class="subtle">Dirección</label>
-                  <input name="address" type="text" placeholder="Calle / Carrera" required />
-                </div>
-                <div class="stack-form" style="grid-column: 1 / -1;">
-                  <label class="subtle">Referencia</label>
-                  <input name="reference" type="text" placeholder="Apto / Local / Color casa" />
+              <div class="stack-form">
+                <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Dirección de entrega</label>
+                <div style="display: flex; gap: 10px;">
+                  <input name="address" type="text" placeholder="Calle / Carrera # Numero" required style="flex: 1; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);" />
+                  <button type="button" class="mini-action" id="validateOrderAddressBtn" style="white-space: nowrap;"><span class="material-symbols-rounded" style="font-size: 18px;">location_searching</span></button>
                 </div>
               </div>
-              <div class="mini-map-preview"></div>
+              <div class="mini-map-preview" style="height: 140px; margin-top: 16px; border-radius: 12px; border: 1px solid var(--panel-border); background: #07111f;"></div>
             </div>
 
-            <div class="section numbered">
-              <div class="section-header"><div class="section-number">3</div><div class="section-title">Configuración de la comanda</div></div>
-              <div class="form-grid-modal">
+            <!-- Configuración Operativa -->
+            <div class="panel" style="background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 18px; padding: 20px;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(245, 158, 11, 0.1); color: var(--accent); display: flex; align-items: center; justify-content: center;">
+                  <span class="material-symbols-rounded" style="font-size: 20px;">settings_suggest</span>
+                </div>
+                <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Detalles Operativos</h3>
+              </div>
+              <div class="form-grid-modal" style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
                 <div class="stack-form">
-                  <label class="subtle">Método de pago</label>
-                  <select name="paymentMethod">
+                  <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Método de Pago</label>
+                  <select name="paymentMethod" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);">
                     <option>Efectivo</option>
                     <option>Transferencia</option>
                     <option>Nequi/Daviplata</option>
                   </select>
                 </div>
                 <div class="stack-form">
-                  <label class="subtle">Asignar domiciliario</label>
-                  <select name="driverId" id="orderDriverSelect">
+                  <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Domiciliario</label>
+                  <select name="driverId" id="orderDriverSelect" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);">
                     <option value="">Sin asignar</option>
                   </select>
                 </div>
+                <div class="stack-form">
+                  <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Urgencia</label>
+                  <select name="urgencyLevel" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);">
+                    <option value="low">Baja</option>
+                    <option value="medium">Media</option>
+                    <option value="high">Alta</option>
+                    <option value="critical">Crítica</option>
+                  </select>
+                </div>
+                <div class="stack-form">
+                  <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Buffer (min)</label>
+                  <input name="deliveryBufferMinutes" type="number" min="0" value="0" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);" />
+                </div>
               </div>
-
-              <div class="stack-form" style="margin-top: 8px;">
-                <label class="subtle">Observaciones del pedido</label>
-                <textarea name="notes" rows="3" placeholder="Ej. sin cebolla, timbre dañado, llamar al llegar, etc."></textarea>
+              <div class="stack-form" style="margin-top: 16px;">
+                <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Notas del Pedido</label>
+                <textarea name="notes" rows="2" placeholder="Observaciones..." style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);"></textarea>
               </div>
-
-              <div class="inline-actions modal-actions">
-                <button type="button" class="btn-secondary" id="clearOrderForm">Limpiar formulario</button>
-                <button type="submit" class="primary">Crear comanda</button>
+              <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <button type="button" class="btn-secondary" id="clearOrderForm" style="flex: 1; padding: 10px; font-size: 13px;">Limpiar Formulario</button>
               </div>
             </div>
           </div>
 
-          <aside class="order-modal-right">
-            <div class="section">
-              <div class="section-header"><div class="section-title">4. Productos</div></div>
-              <input type="text" id="orderProductSearch" placeholder="Buscar plato (ej. Arroz, Hamburguesa...)" />
-              <div class="inline-form wrap" style="margin-top:8px;">
-                <select id="orderProductSelect"></select>
-                <input id="orderQuantityInput" type="number" min="1" value="1" style="width:72px;" />
-                <button type="button" id="addItemButton" class="btn-primary">Agregar</button>
+          <aside class="order-modal-right" style="display: flex; flex-direction: column; gap: 20px;">
+            <!-- Items de la Comanda -->
+            <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 20px; flex-grow: 1; display: flex; flex-direction: column;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(168, 85, 247, 0.1); color: #a855f7; display: flex; align-items: center; justify-content: center;">
+                  <span class="material-symbols-rounded" style="font-size: 20px;">shopping_basket</span>
+                </div>
+                <h3 style="font-size: 16px; font-weight: 700; margin: 0;">Items de la Comanda</h3>
               </div>
-
-              <div id="pendingItems" class="products-added-list" style="margin-top:12px;"></div>
+              <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+                <input type="text" id="orderProductSearch" placeholder="Buscar plato..." style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); padding: 10px 14px; border-radius: 10px;" />
+                <div style="display: flex; gap: 8px;">
+                  <select id="orderProductSelect" style="flex: 1; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); padding: 10px; border-radius: 10px;"></select>
+                  <button type="button" id="addItemButton" class="primary" style="height: 42px; width: 42px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 10px;">
+                    <span class="material-symbols-rounded">add</span>
+                  </button>
+                  <input id="orderQuantityInput" type="number" min="1" value="1" style="display:none;" />
+                </div>
+              </div>
+              <div id="pendingItems" class="products-added-list" style="overflow-y: auto; max-height: 280px; flex-grow: 1; display: flex; flex-direction: column; gap: 10px;">
+                <!-- Renderizado dinámico desde app.js -->
+              </div>
             </div>
 
-            <div class="section summary-box">
-              <div class="summary-row"><span>Subtotal productos</span><strong id="detailSubtotal">$0</strong></div>
-              <div class="summary-row"><span>Costo de domicilio</span><strong id="detailShipping">$0</strong></div>
-              <div class="summary-row total"><span>Total a pagar</span><strong id="detailTotal">$0</strong></div>
+            <!-- Resumen Financiero -->
+            <div class="panel summary-box" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(0,0,0,0.4) 100%); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 18px; padding: 20px;">
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; justify-content: space-between; font-size: 14px; color: var(--muted);">
+                  <span>Subtotal Items</span>
+                  <strong id="detailSubtotal" style="color: var(--text-primary);">$0</strong>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 14px; color: var(--muted);">
+                  <span>Costo Domicilio</span>
+                  <input id="orderShippingInput" name="shipping" type="number" min="0" value="3000" style="width: 80px; padding: 4px 8px; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); border-radius: 6px; text-align: right; color: var(--text-primary);" />
+                </div>
+                <div style="height: 1px; background: rgba(255,255,255,0.05); margin: 4px 0;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                  <span style="font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em; color: var(--accent);">Total a Pagar</span>
+                  <strong id="detailTotal" style="font-size: 28px; font-weight: 800; color: var(--accent); letter-spacing: -0.02em;">$0</strong>
+                </div>
+              </div>
             </div>
           </aside>
         </div>

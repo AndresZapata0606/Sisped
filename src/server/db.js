@@ -200,6 +200,33 @@ async function createSqlDatabase() {
       FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
       FOREIGN KEY (driver_id) REFERENCES drivers(id)
     );
+
+    -- Nueva tabla para el historial de rutas de domicilios
+    CREATE TABLE IF NOT EXISTS delivery_routes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_id INTEGER, -- Referencia al primer pedido en la ruta, puede ser NULL si la ruta está vacía o no está ligada a un solo pedido
+      driver_id INTEGER NOT NULL,
+      assigned_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      status TEXT DEFAULT 'completed', -- 'pending', 'active', 'completed', 'cancelled'
+      total_distance_km REAL,
+      total_eta_minutes INTEGER,
+      start_latitude REAL,
+      start_longitude REAL,
+      route_json TEXT, -- JSON de la secuencia de paradas optimizada
+      optimization_params_json TEXT, -- JSON de los parámetros usados para esta optimización
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+      FOREIGN KEY (driver_id) REFERENCES drivers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS dangerous_zones (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      risk_score INTEGER DEFAULT 5,
+      color TEXT DEFAULT '#ff0000',
+      polygon_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Asegurar columnas de lat/lng en tablas existentes (para migraciones en caliente)
@@ -218,6 +245,52 @@ async function createSqlDatabase() {
   try {
     db.exec(`ALTER TABLE orders ADD COLUMN longitude REAL;`);
   } catch (e) { /* columna ya existe o no soportado */ }
+
+  // Nuevas columnas para optimización y auditoría
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN urgency_level TEXT DEFAULT 'low';`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN delivery_buffer_minutes INTEGER DEFAULT 0;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN geocoding_source TEXT;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE client_addresses ADD COLUMN geocoding_source TEXT;`);
+  } catch (e) { }
+
+  // Migraciones para delivery_routes (asegurar compatibilidad con el historial avanzado)
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN assigned_at TEXT;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN status TEXT DEFAULT 'completed';`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN total_distance_km REAL;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN total_eta_minutes INTEGER;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN start_latitude REAL;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN start_longitude REAL;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN optimization_params_json TEXT;`);
+  } catch (e) { }
 
   const productCount = db.prepare('SELECT COUNT(*) AS total FROM products').get();
   if ((productCount && Number(productCount.total)) === 0) {

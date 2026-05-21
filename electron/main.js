@@ -25,6 +25,12 @@ async function createWindow() {
   });
 
   await win.loadURL(`http://127.0.0.1:${serverInfo.port}`);
+  // Abrir DevTools automáticamente en entorno de desarrollo para facilitar debugging
+  try {
+    if (process.env.NODE_ENV !== 'production') {
+      win.webContents.openDevTools({ mode: 'undocked' });
+    }
+  } catch (e) { /* ignore if fails */ }
   mainWindow = win;
 }
 

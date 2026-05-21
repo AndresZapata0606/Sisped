@@ -16,6 +16,24 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getBogotaTimestamp(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).formatToParts(date).reduce((accumulator, part) => {
+    if (part.type !== 'literal') accumulator[part.type] = part.value;
+    return accumulator;
+  }, {});
+
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}-05:00`;
+}
+
 function getRangeBounds(range, cutoffHour = 0) { // Default to 0 for safety, will be passed from client
   const now = new Date();
   const end = new Date(now); // 'end' is always the current moment
@@ -159,6 +177,58 @@ function createRouteSuggestion(db, orderId) {
   };
 }
 
+function normalizeAddressKey(row) {
+  return [row?.client_id, row?.address, row?.barrio, row?.reference]
+    .map((value) => String(value || '').trim().toLowerCase())
+    .join('|');
+}
+
+function backfillClientAddressesFromOrders(db) {
+  const historicalAddresses = db.prepare(`
+    SELECT o.client_id, o.address, o.barrio, o.reference, o.latitude, o.longitude, o.created_at
+    FROM orders o
+    WHERE TRIM(COALESCE(o.address, '')) <> ''
+    ORDER BY o.created_at ASC, o.id ASC
+  `).all();
+
+  const existingAddresses = db.prepare(`
+    SELECT client_id, address, barrio, reference
+    FROM client_addresses
+  `).all();
+
+  const seen = new Set(existingAddresses.map(normalizeAddressKey));
+  const lastInsertedByClient = new Map();
+
+  db.transaction(() => {
+    historicalAddresses.forEach((address) => {
+      const key = normalizeAddressKey(address);
+      if (seen.has(key)) return;
+
+      const insertResult = db.prepare(`
+        INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        address.client_id,
+        'principal',
+        String(address.address || '').trim(),
+        String(address.barrio || '').trim(),
+        String(address.reference || '').trim(),
+        0,
+        address.latitude ? Number(address.latitude) : null,
+        address.longitude ? Number(address.longitude) : null
+      );
+
+      seen.add(key);
+      lastInsertedByClient.set(address.client_id, insertResult.lastInsertRowid);
+    });
+
+    lastInsertedByClient.forEach((addressId, clientId) => {
+      db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = ?').run(clientId);
+      db.prepare('UPDATE client_addresses SET is_primary = 1 WHERE id = ?').run(addressId);
+    });
+  })();
+}
+
 function requestUrl(url, options = {}) {
   return new Promise((resolve, reject) => {
     try {
@@ -188,6 +258,54 @@ async function startServer() {
   const db = await openDatabase();
   const app = express();
 
+  function getClientAddressSnapshot(clientId) {
+    const savedAddresses = db.prepare(`
+      SELECT * FROM client_addresses
+      WHERE client_id = ?
+      ORDER BY is_primary DESC, created_at DESC, id DESC
+    `).all(clientId).map((address) => ({
+      ...address,
+      source: 'saved'
+    }));
+
+    const orderAddresses = db.prepare(`
+      SELECT o.id AS order_id, o.address, o.barrio, o.reference, o.latitude, o.longitude, o.created_at
+      FROM orders o
+      WHERE o.client_id = ? AND TRIM(COALESCE(o.address, '')) <> ''
+      ORDER BY o.created_at DESC, o.id DESC
+    `).all(clientId).map((order) => ({
+      client_id: clientId,
+      id: `order-${order.order_id}`,
+      label: `Pedido #${order.order_id}`,
+      address: order.address,
+      barrio: order.barrio,
+      reference: order.reference,
+      latitude: order.latitude,
+      longitude: order.longitude,
+      is_primary: 0,
+      created_at: order.created_at,
+      source: 'order'
+    }));
+
+    const mergedAddresses = [];
+    const seen = new Set();
+
+    [...savedAddresses, ...orderAddresses].forEach((address) => {
+      const key = normalizeAddressKey(address);
+      if (seen.has(key)) return;
+      seen.add(key);
+      mergedAddresses.push(address);
+    });
+
+    return {
+      addresses: mergedAddresses,
+      primaryAddress: mergedAddresses.find((address) => address.is_primary) || mergedAddresses[0] || null,
+      addressCount: mergedAddresses.length
+    };
+  }
+
+  backfillClientAddressesFromOrders(db);
+
   app.use(cors());
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '..', 'renderer')));
@@ -200,30 +318,19 @@ async function startServer() {
     const search = String(request.query.q || '').trim();
     const clients = search
       ? db.prepare(`
-          SELECT c.*, COUNT(a.id) AS address_count
-          FROM clients c
-          LEFT JOIN client_addresses a ON a.client_id = c.id
+          SELECT c.* FROM clients c
           WHERE c.name LIKE ? OR c.phone LIKE ?
-          GROUP BY c.id
           ORDER BY c.updated_at DESC
         `).all(`%${search}%`, `%${normalizePhone(search)}%`)
       : db.prepare(`
-          SELECT c.*, COUNT(a.id) AS address_count
-          FROM clients c
-          LEFT JOIN client_addresses a ON a.client_id = c.id
-          GROUP BY c.id
+          SELECT c.* FROM clients c
           ORDER BY c.updated_at DESC
           LIMIT 20
         `).all();
 
     response.json(clients.map((client) => ({
       ...client,
-      primaryAddress: db.prepare(`
-        SELECT * FROM client_addresses
-        WHERE client_id = ?
-        ORDER BY is_primary DESC, created_at DESC
-        LIMIT 1
-      `).get(client.id) || null
+      ...getClientAddressSnapshot(client.id)
     })));
   });
 
@@ -241,28 +348,29 @@ async function startServer() {
   });
 
   app.get('/api/clients/:id/addresses', (request, response) => {
-    const addresses = db.prepare('SELECT * FROM client_addresses WHERE client_id = ? ORDER BY is_primary DESC, created_at DESC').all(request.params.id);
-    response.json(addresses);
+    const clientId = Number(request.params.id);
+    const snapshot = getClientAddressSnapshot(clientId);
+    response.json(snapshot.addresses);
   });
 
   app.post('/api/clients/:id/addresses', (request, response) => {
     const clientId = request.params.id;
-    const { label, address, barrio, reference, latitude, longitude } = request.body;
+    const { label, address, barrio, reference, latitude, longitude, geocodingSource } = request.body;
     const result = db.prepare(`
-      INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(clientId, label || 'otra', address, barrio, reference || '', latitude ? Number(latitude) : null, longitude ? Number(longitude) : null);
+      INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude, geocoding_source)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+    `).run(clientId, label || 'otra', address, barrio, reference || '', latitude ? Number(latitude) : null, longitude ? Number(longitude) : null, geocodingSource || null);
     db.save();
     response.status(201).json({ id: result.lastInsertRowid });
   });
 
   app.patch('/api/addresses/:id', (request, response) => {
-    const { label, address, barrio, reference, latitude, longitude } = request.body;
+    const { label, address, barrio, reference, latitude, longitude, geocodingSource } = request.body;
     db.prepare(`
-      UPDATE client_addresses 
-      SET label = ?, address = ?, barrio = ?, reference = ?, latitude = ?, longitude = ?
+      UPDATE client_addresses
+      SET label = ?, address = ?, barrio = ?, reference = ?, latitude = ?, longitude = ?, geocoding_source = ?
       WHERE id = ?
-    `).run(label, address, barrio, reference, latitude ? Number(latitude) : null, longitude ? Number(longitude) : null, request.params.id);
+    `).run(label, address, barrio, reference, latitude ? Number(latitude) : null, longitude ? Number(longitude) : null, geocodingSource || null, request.params.id);
     db.save();
     response.json({ ok: true });
   });
@@ -339,7 +447,7 @@ async function startServer() {
       if (!coords.length) return response.status(400).json({ message: 'No hay coordenadas válidas entre los puntos.' });
 
       // Insertar punto base (restaurante) al inicio si no viene explícito
-      const depot = request.body.depot || { latitude: 3.4516, longitude: -76.5320 };
+      const depot = request.body.depot || { latitude: 3.411568, longitude: -76.515763 };
       const depotCoord = `${Number(depot.longitude)},${Number(depot.latitude)}`;
       // Prepend depot to coords/inputPoints
       coords.unshift(depotCoord);
@@ -465,7 +573,7 @@ async function startServer() {
   app.post('/api/clients/resolve', async (request, response) => { // Wrap client resolution in a transaction
     try {
       const result = db.transaction(() => {
-        const name = String(request.body.name || '').trim();
+        const name = String(request.body.name || '').trim(); // No need to trim here, already done in client
         const phone = normalizePhone(request.body.phone);
         const address = String(request.body.address || '').trim();
         const barrio = String(request.body.barrio || '').trim();
@@ -497,10 +605,11 @@ async function startServer() {
           }
 
           const insertAddr = db.prepare(`
-            INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(clientId, request.body.label || 'principal', address, barrio, reference, request.body.setPrimaryAddress === false ? 0 : 1, request.body.latitude ? Number(request.body.latitude) : null, request.body.longitude ? Number(request.body.longitude) : null);
+            INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude, geocoding_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(clientId, request.body.label || 'principal', address, barrio, reference, request.body.setPrimaryAddress === false ? 0 : 1, request.body.latitude ? Number(request.body.latitude) : null, request.body.longitude ? Number(request.body.longitude) : null, request.body.geocodingSource || null);
           insertedAddressId = insertAddr.lastInsertRowid;
+
         }
 
         const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
@@ -679,6 +788,9 @@ async function startServer() {
         const paymentMethod = String(request.body.paymentMethod || 'Efectivo').trim();
         const status = String(request.body.status || 'nuevo').trim();
         const driverId = request.body.driverId ? Number(request.body.driverId) : null;
+        const geocodingSource = String(request.body.geocodingSource || '').trim();
+        const urgencyLevel = String(request.body.urgencyLevel || 'low').trim();
+        const deliveryBufferMinutes = Number(request.body.deliveryBufferMinutes || 0);
 
         // 1. Resolver Cliente
         let client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(normalizePhone(clientData.phone));
@@ -688,14 +800,32 @@ async function startServer() {
           db.prepare('UPDATE clients SET name = ?, notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
             .run(String(clientData.name || '').trim() || client.name, String(clientData.notes || '').trim(), client.id);
           clientId = client.id;
+
+          // Si la comanda no trae coordenadas, intentar obtenerlas desde la dirección principal guardada
+          try {
+            const primaryAddr = db.prepare('SELECT latitude, longitude FROM client_addresses WHERE client_id = ? AND is_primary = 1 LIMIT 1').get(clientId);
+            if ((!clientData.latitude || !clientData.longitude) && primaryAddr) {
+              if (primaryAddr.latitude != null) clientData.latitude = primaryAddr.latitude;
+              if (primaryAddr.longitude != null) clientData.longitude = primaryAddr.longitude;
+            }
+          } catch (e) { /* ignore */ }
+
+          if (clientData.address) {
+            if (request.body.setPrimaryAddress !== false) {
+              db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = ?').run(clientId);
+            }
+
+            db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude, geocoding_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+              .run(clientId, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), request.body.setPrimaryAddress === false ? 0 : 1, clientData.latitude ? Number(clientData.latitude) : null, clientData.longitude ? Number(clientData.longitude) : null, geocodingSource || null);
+          }
         } else {
-          const insertClient = db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)');
+          const insertClient = db.prepare('INSERT INTO clients (name, phone, notes) VALUES (?, ?, ?)'); // No need to trim here, already done in client
           const clientResult = insertClient.run(String(clientData.name || '').trim(), normalizePhone(clientData.phone), String(clientData.notes || '').trim());
           clientId = clientResult.lastInsertRowid;
 
           if (clientData.address) {
-            db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-              .run(clientId, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), 1, clientData.latitude ? Number(clientData.latitude) : null, clientData.longitude ? Number(clientData.longitude) : null);
+            db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude, geocoding_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+              .run(clientId, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), 1, clientData.latitude ? Number(clientData.latitude) : null, clientData.longitude ? Number(clientData.longitude) : null, geocodingSource || null);
           }
         }
 
@@ -716,9 +846,10 @@ async function startServer() {
         }, 0);
 
         // 4. Crear Pedido
+        const createdAt = getBogotaTimestamp();
         const orderResult = db.prepare(`
-          INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone, latitude, longitude)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone, latitude, longitude, geocoding_source, urgency_level, delivery_buffer_minutes, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           clientId,
           driverId,
@@ -731,7 +862,11 @@ async function startServer() {
           total,
           String(clientData.barrio || '').trim(),
           clientData.latitude ? Number(clientData.latitude) : null,
-          clientData.longitude ? Number(clientData.longitude) : null
+          clientData.longitude ? Number(clientData.longitude) : null,
+          geocodingSource || null,
+          urgencyLevel,
+          deliveryBufferMinutes,
+          createdAt
         );
 
         const orderId = orderResult.lastInsertRowid;
@@ -747,7 +882,7 @@ async function startServer() {
 
         // 6. Actualizar Domiciliario si aplica
         if (driverId) {
-          db.prepare('UPDATE drivers SET current_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run('en ruta', driverId);
+          db.prepare('UPDATE drivers SET current_status = ?, updated_at = ? WHERE id = ?').run('en ruta', getBogotaTimestamp(), driverId);
         }
 
         return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
@@ -777,6 +912,9 @@ async function startServer() {
         const paymentMethod = String(request.body.paymentMethod || 'Efectivo').trim();
         const driverId = request.body.driverId ? Number(request.body.driverId) : null;
         const notes = String(request.body.notes || '').trim();
+        const geocodingSource = String(request.body.geocodingSource || '').trim();
+        const urgencyLevel = String(request.body.urgencyLevel || 'low').trim();
+        const deliveryBufferMinutes = Number(request.body.deliveryBufferMinutes || 0);
 
         const productLookup = db.prepare('SELECT * FROM products WHERE id = ?');
         const total = items.reduce((sum, item) => {
@@ -785,10 +923,45 @@ async function startServer() {
         }, 0);
 
         db.prepare(`
-          UPDATE orders 
-          SET driver_id = ?, payment_method = ?, barrio = ?, address = ?, reference = ?, notes = ?, total = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(driverId, paymentMethod, clientData.barrio, clientData.address, clientData.reference, notes, total, orderId);
+          UPDATE orders
+          SET driver_id = ?, payment_method = ?, barrio = ?, address = ?, reference = ?, notes = ?, total = ?, latitude = ?, longitude = ?, geocoding_source = ?, urgency_level = ?, delivery_buffer_minutes = ?, updated_at = ?
+          WHERE id = ? 
+        `).run(
+          driverId,
+          paymentMethod,
+          clientData.barrio,
+          clientData.address,
+          clientData.reference,
+          notes,
+          total,
+          clientData.latitude ? Number(clientData.latitude) : null,
+          clientData.longitude ? Number(clientData.longitude) : null,
+          geocodingSource || null,
+          urgencyLevel,
+          deliveryBufferMinutes,
+          getBogotaTimestamp(),
+          orderId
+        );
+
+        if (clientData.address) {
+          db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = (SELECT client_id FROM orders WHERE id = ?)').run(orderId);
+          const orderClient = db.prepare('SELECT client_id FROM orders WHERE id = ?').get(orderId);
+          if (orderClient?.client_id) {
+            db.prepare(`
+              INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              orderClient.client_id,
+              'principal',
+              String(clientData.address || '').trim(),
+              String(clientData.barrio || '').trim(),
+              String(clientData.reference || '').trim(),
+              1,
+              clientData.latitude ? Number(clientData.latitude) : null,
+              clientData.longitude ? Number(clientData.longitude) : null
+            );
+          }
+        }
 
         db.prepare('DELETE FROM order_items WHERE order_id = ?').run(orderId);
         items.forEach(item => {
@@ -807,13 +980,21 @@ async function startServer() {
     }
   });
 
+  app.patch('/api/orders/:id/coords', (request, response) => {
+    const { latitude, longitude } = request.body;
+    db.prepare('UPDATE orders SET latitude = ?, longitude = ?, updated_at = ? WHERE id = ?')
+      .run(Number(latitude), Number(longitude), getBogotaTimestamp(), request.params.id);
+    db.save();
+    response.json({ ok: true });
+  });
+
   app.patch('/api/orders/:id/status', (request, response) => {
     const orderId = request.params.id;
     const newStatus = String(request.body.status || '').toLowerCase();
-    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    const now = getBogotaTimestamp();
 
-    let updateSql = 'UPDATE orders SET status = ?, updated_at = CURRENT_TIMESTAMP';
-    const params = [newStatus];
+    let updateSql = 'UPDATE orders SET status = ?, updated_at = ?';
+    const params = [newStatus, now];
 
     if (newStatus === 'en ruta') {
       updateSql += ', picked_up_at = ?';
@@ -835,162 +1016,385 @@ async function startServer() {
     response.json(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId));
   });
 
-  app.get('/api/routes/suggest', (request, response) => {
-    const driverId = request.query.driverId ? Number(request.query.driverId) : null;
-    const maxPerRoute = toNumber(request.query.maxPerRoute) || 5;
-    const orders = db.prepare(`
-      SELECT o.id, o.barrio, o.address, o.status, o.total, c.name AS client_name
-      FROM orders o
-      INNER JOIN clients c ON c.id = o.client_id
-      WHERE o.status IN ('listo para salir', 'en ruta')
-      ORDER BY o.barrio ASC, datetime(o.created_at) ASC
-    `).all();
-
-    // Obtener ítems para estos pedidos
-    const orderIds = orders.map(o => o.id);
-    let itemsByOrder = {};
-    if (orderIds.length > 0) {
-      itemsByOrder = db.prepare(`
-        SELECT oi.* FROM order_items oi 
-        WHERE oi.order_id IN (${orderIds.map(() => '?').join(',')})
-      `).all(orderIds).reduce((acc, item) => {
-        if (!acc[item.order_id]) acc[item.order_id] = [];
-        acc[item.order_id].push(item);
-        return acc;
-      }, {});
-    }
-
-    const ordersWithCoords = orders.map(o => {
-      const extra = db.prepare('SELECT latitude, longitude FROM orders WHERE id = ?').get(o.id) || {};
-      return { 
-        ...o, 
-        latitude: extra.latitude, 
-        longitude: extra.longitude,
-        items: itemsByOrder[o.id] || []
-      };
-    });
-
-    const grouped = ordersWithCoords.reduce((accumulator, order) => {
-      const key = order.barrio || 'Sin barrio';
-      if (!accumulator[key]) {
-        accumulator[key] = [];
-      }
-      accumulator[key].push(order);
-      return accumulator;
-    }, {});
-
-    const suggestedRoutes = [];
-    Object.entries(grouped).forEach(([barrio, barrioOrders]) => {
-      // Dividir los pedidos de la zona en grupos según el máximo permitido
-      for (let i = 0; i < barrioOrders.length; i += maxPerRoute) {
-        suggestedRoutes.push({
-          id: `route-${barrio}-${i}`,
-          zone: barrio,
-          orders: barrioOrders.slice(i, i + maxPerRoute)
-        });
-      }
-    });
-
-    response.json({
-      driverId,
-      grouped,
-      suggestedRoutes,
-      sequence: suggestedRoutes.length > 0 ? suggestedRoutes[0].orders : []
-    });
+  // API para Zonas Peligrosas
+  app.get('/api/dangerous-zones', (req, res) => {
+    const zones = db.prepare('SELECT * FROM dangerous_zones').all();
+    res.json(zones.map(z => ({ ...z, polygon: JSON.parse(z.polygon_json) })));
   });
 
-  app.get('/api/stats', (request, response) => {
-    const range = ['day', 'week', 'month'].includes(String(request.query.range || 'day'))
-      ? String(request.query.range || 'day')
-      : 'day';
-    const cutoffHour = toNumber(request.query.cutoffHour || 0); // Get cutoffHour from query parameter
-    response.json(buildStats(db, range, cutoffHour)); // Pass cutoffHour to buildStats
+  app.post('/api/dangerous-zones', (req, res) => {
+    const { name, riskScore, color, polygon } = req.body;
+    const result = db.prepare('INSERT INTO dangerous_zones (name, risk_score, color, polygon_json) VALUES (?, ?, ?, ?)')
+      .run(name, riskScore, color, JSON.stringify(polygon));
+    res.status(201).json({ id: result.lastInsertRowid });
   });
 
-  // Asignar una ruta a un domiciliario y persistir la sugerencia
-  app.post('/api/routes/assign', (request, response) => {
+  app.delete('/api/dangerous-zones/:id', (req, res) => {
+    db.prepare('DELETE FROM dangerous_zones WHERE id = ?').run(req.params.id);
+    res.status(204).send();
+  });
+
+  // Función auxiliar para detectar cuadrantes y evitar Batching extremo
+  function getQuadrant(lat, lon, dLat, dLon) {
+    if (lat >= dLat && lon >= dLon) return 'NE';
+    if (lat >= dLat && lon < dLon) return 'NW';
+    if (lat < dLat && lon >= dLon) return 'SE';
+    return 'SW';
+  }
+
+
+  app.get('/api/routes/suggest', async (request, response) => {
     try {
-      const driverId = request.body.driverId ? Number(request.body.driverId) : null;
-      const orderIds = Array.isArray(request.body.orderIds) ? request.body.orderIds.map(Number).filter(Boolean) : [];
-      const route = Array.isArray(request.body.route) ? request.body.route : [];
-      const routeSummary = request.body.routeSummary && typeof request.body.routeSummary === 'object' ? request.body.routeSummary : null;
+      // Asegurar que si driverId es un string vacío se trate como null
+      const driverId = request.query.driverId && request.query.driverId.trim() !== '' ? Number(request.query.driverId) : null;
+      const maxPerRoute = toNumber(request.query.maxPerRoute) || 5;
 
-      if (!driverId || !orderIds.length) {
-        return response.status(400).json({ message: 'driverId y orderIds son requeridos para asignar una ruta.' });
+      // Cargar zonas peligrosas
+      let dangerousZones = [];
+      try {
+        dangerousZones = db.prepare('SELECT * FROM dangerous_zones').all().map(z => ({
+          ...z, polygon: JSON.parse(z.polygon_json || '[]')
+        }));
+      } catch (e) {
       }
 
-      const driver = db.prepare('SELECT * FROM drivers WHERE id = ?').get(driverId);
-      if (!driver) return response.status(404).json({ message: 'Domiciliario no encontrado.' });
+      // 1. Obtener pedidos base
+      const ordersData = db.prepare(`
+        SELECT o.id, o.barrio, o.address, o.status, o.total, o.latitude, o.longitude, o.urgency_level, o.delivery_buffer_minutes, o.created_at, c.name AS client_name, o.geocoding_source
+        FROM orders o
+        INNER JOIN clients c ON c.id = o.client_id
+        WHERE o.status IN ('listo para salir', 'en ruta')
+        ORDER BY o.barrio ASC, datetime(o.created_at) ASC
+        LIMIT 100
+      `).all();
 
-      const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+      // 2. Obtener ítems de forma segura (evitando LIMIT en subquery de IN)
+      const orderIds = ordersData.map(o => o.id);
+      let itemsByOrder = {};
+      if (orderIds.length > 0) {
+        const placeholders = orderIds.map(() => '?').join(',');
+        const items = db.prepare(`SELECT * FROM order_items WHERE order_id IN (${placeholders})`).all(orderIds);
+        itemsByOrder = items.reduce((acc, item) => {
+          if (!acc[item.order_id]) acc[item.order_id] = [];
+          acc[item.order_id].push(item);
+          return acc;
+        }, {});
+      }
 
-      const result = db.transaction(() => {
-        // Actualizar cada pedido: asignar driver y marcar como 'en ruta'
-        orderIds.forEach((oid) => {
-          db.prepare('UPDATE orders SET driver_id = ?, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-            .run(driverId, 'en ruta', oid);
-        });
-
-        // Actualizar estado del domiciliario
-        db.prepare('UPDATE drivers SET current_status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-          .run('en ruta', driverId);
-
-        // Persistir una sugerencia de ruta (referencia al primer pedido)
-        const firstOrderId = orderIds[0] || 0;
-        const distanceKm = routeSummary && Number.isFinite(Number(routeSummary.distanceKm))
-          ? Number(routeSummary.distanceKm)
-          : Math.max(orderIds.length, 1) * 2.4;
-        const etaMinutes = routeSummary && Number.isFinite(Number(routeSummary.durationMin))
-          ? Number(routeSummary.durationMin)
-          : Math.max(orderIds.length, 1) * 8;
-        const enrichedRoute = route.map((item, index) => ({
-          ...item,
-          sequenceIndex: index + 1
-        }));
-
-        const insert = db.prepare(`
-          INSERT INTO route_suggestions (order_id, driver_id, barrio_group, route_json, distance_km, eta_minutes)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(firstOrderId, driverId, '', JSON.stringify(enrichedRoute), distanceKm, etaMinutes);
-
+      const ordersWithCoords = ordersData.map(o => {
         return {
-          routeSuggestionId: insert.lastInsertRowid,
-          assignedOrders: orderIds,
-          driverId,
-          distanceKm,
-          etaMinutes,
-          routeSummary: routeSummary || null
+          ...o,
+          items: itemsByOrder[o.id] || [],
+          latitude: (o.latitude != null && !isNaN(Number(o.latitude))) ? Number(o.latitude) : null,
+          longitude: (o.longitude != null && !isNaN(Number(o.longitude))) ? Number(o.longitude) : null
         };
-      })();
-
-      response.json({ ok: true, result });
-    } catch (error) {
-      console.error('Error asignando ruta:', error);
-      response.status(500).json({ message: 'Error interno al asignar la ruta.' });
-    }
-  });
-
-  // Manejador 404 específico para API (antes del comodín de HTML)
-  app.use('/api', (request, response) => {
-    response.status(404).json({ message: `Ruta de API no encontrada: ${request.method} ${request.url}` });
-  });
-
-  app.get(/.*/, (_request, response) => {
-    response.sendFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-  });
-
-  const server = app.listen(0, '127.0.0.1');
-
-  return new Promise((resolve) => {
-    server.on('listening', () => {
-      resolve({
-        app,
-        db,
-        server,
-        port: server.address().port
       });
+
+      const DEPOT_LAT = 3.411568;
+      const DEPOT_LON = -76.515763;
+      const DEPOT_ID = 'depot';
+
+      const allPoints = [{ id: DEPOT_ID, latitude: DEPOT_LAT, longitude: DEPOT_LON }, ...ordersWithCoords];
+      const validPoints = allPoints.filter(p => p.latitude != null && p.longitude != null);
+      const osrmCoords = validPoints.map(p => `${p.longitude},${p.latitude}`);
+
+      let osrmDistances = null; // meters
+      let osrmDurations = null; // seconds
+
+      if (validPoints.length > 1) { 
+        try {
+          const baseUrl = OSRM_BASE_URL.replace(/\/$/, '');
+          const tableUrl = `${baseUrl}/table/v1/driving/${osrmCoords.join(';')}?annotations=duration,distance`;
+          
+          const tableResult = await requestUrl(tableUrl);
+
+          if (tableResult.statusCode === 200) {
+            try {
+              const tableParsed = JSON.parse(tableResult.body);
+              osrmDistances = tableParsed.distances || null;
+              osrmDurations = tableParsed.durations || null;
+            } catch (e) {
+            }
+          } else {
+          }
+        } catch (e) {
+        }
+      } else {
+      }
+
+      const ordersWithDepotDistance = ordersWithCoords.map((order) => {
+        const orderLat = Number(order.latitude) || DEPOT_LAT;
+        const orderLon = Number(order.longitude) || DEPOT_LON;
+
+        let distKm;
+        const vIdx = validPoints.findIndex(p => p.id === order.id);
+        if (Array.isArray(osrmDistances) && Array.isArray(osrmDistances[0]) && vIdx !== -1 && osrmDistances[0][vIdx] != null) {
+          distKm = Number(osrmDistances[0][vIdx]) / 1000;
+        } else {
+          distKm = Math.sqrt(Math.pow((Number(orderLat) - DEPOT_LAT) * 111, 2) + Math.pow((Number(orderLon) - DEPOT_LON) * 111 * Math.cos(DEPOT_LAT * Math.PI / 180), 2));
+        }
+        return { ...order, distKm: Number.isFinite(distKm) ? distKm : 0 };
+      });
+
+      const ordersWithPriority = ordersWithDepotDistance.map(o => {
+        let score = 0;
+        try {
+          const dateStr = String(o.created_at || '').replace(' ', 'T');
+          const waitMin = (new Date() - new Date(dateStr)) / 60000;
+          if (Number.isFinite(waitMin)) score += Math.min(Math.max(waitMin, 0), 40);
+        } catch (e) {
+          // Ignorar error de fecha
+        }
+        
+        if (o.total > 80000) score += 15;
+        if (o.urgency_level === 'critical') score += 30;
+
+        const isDangerous = dangerousZones.some(z => {
+          try {
+            if (!o.latitude) return false;
+            const lats = (z.polygon || []).map(p => p[0]).filter(Number.isFinite);
+            return lats.length > 0 && o.latitude > Math.min(...lats) && o.latitude < Math.max(...lats);
+          } catch (e) { return false; }
+        });
+        if (isDangerous) score += 15;
+
+        const lat = o.latitude != null ? Number(o.latitude) : DEPOT_LAT;
+        const lon = o.longitude != null ? Number(o.longitude) : DEPOT_LON;
+        return { ...o, priorityScore: Number.isFinite(score) ? Math.min(score, 100) : 0, quadrant: getQuadrant(lat, lon, DEPOT_LAT, DEPOT_LON) };
+      });
+
+      ordersWithPriority.sort((a, b) => b.priorityScore - a.priorityScore);
+
+      const zones = [
+        { name: 'Zona Cercana', maxDist: 2, orders: [] },
+        { name: 'Zona Media', maxDist: 5, orders: [] },
+        { name: 'Zona Lejana (4km+)', maxDist: Infinity, orders: [] }
+      ];
+
+      ordersWithPriority.forEach(order => {
+        const zone = zones.find(z => order.distKm <= z.maxDist);
+        if (zone) zone.orders.push(order);
+      });
+
+      let finalSuggestedRoutes = [];
+
+      zones.forEach(zone => {
+        let currentZoneOrders = [...zone.orders];
+        while (currentZoneOrders.length > 0 && finalSuggestedRoutes.length < 50) {
+          const routeOrders = [];
+          let currentRouteDistance = 0;
+          let currentRouteDuration = 0;
+
+          const firstOrder = currentZoneOrders.shift();
+          if (firstOrder) {
+            routeOrders.push(firstOrder);
+            
+            const fIdx = validPoints.findIndex(p => p.id === firstOrder.id);
+            if (Array.isArray(osrmDistances) && Array.isArray(osrmDurations) && fIdx !== -1) {
+              currentRouteDistance += (Number(osrmDistances[0][fIdx]) || 0) / 1000;
+              currentRouteDuration += (Number(osrmDurations[0][fIdx]) || 0) / 60;
+            } else {
+              currentRouteDistance += Number(firstOrder.distKm) || 0;
+              currentRouteDuration += (Number(firstOrder.distKm) || 0) * 3; // 3 min/km
+            }
+          }
+
+          // Añadir más pedidos a la ruta hasta el límite o capacidad
+          for (let i = 0; i < currentZoneOrders.length && routeOrders.length < maxPerRoute; i++) {
+            const nextOrder = currentZoneOrders[i];
+
+            const firstQuadrant = routeOrders[0].quadrant;
+            const isOpposite = (firstQuadrant === 'NE' && nextOrder.quadrant === 'SW') ||
+              (firstQuadrant === 'NW' && nextOrder.quadrant === 'SE') ||
+              (firstQuadrant === 'SE' && nextOrder.quadrant === 'NW') ||
+              (firstQuadrant === 'SW' && nextOrder.quadrant === 'NE');
+
+            if (isOpposite && nextOrder.distKm > 3) continue;
+
+            const nIdx = validPoints.findIndex(p => p.id === nextOrder.id);
+            const lastOrderInRoute = routeOrders[routeOrders.length - 1];
+            const lIdx = validPoints.findIndex(p => p.id === lastOrderInRoute.id);
+
+            if (Array.isArray(osrmDistances) && Array.isArray(osrmDurations) && nIdx !== -1 && lIdx !== -1) {
+              const segDist = (osrmDistances[lIdx] || [])[nIdx] || 0;
+              const segDur = (osrmDurations[lIdx] || [])[nIdx] || 0;
+              currentRouteDistance += Number(segDist) / 1000;
+              currentRouteDuration += Number(segDur) / 60;
+            } else {
+              currentRouteDistance += Number(nextOrder.distKm) || 0;
+              currentRouteDuration += (Number(nextOrder.distKm) || 0) * 3;
+            }
+            routeOrders.push(nextOrder);
+            currentZoneOrders.splice(i, 1);
+            i--;
+          }
+
+          if (routeOrders.length > 0) {
+            finalSuggestedRoutes.push({
+              id: `route-${zone.name}-${finalSuggestedRoutes.length}`,
+              zone: zone.name,
+              orders: routeOrders,
+              estimatedDistanceKm: Number(currentRouteDistance).toFixed(1),
+              estimatedEtaMinutes: Math.round(currentRouteDuration + (routeOrders.length * 5))
+            });
+          }
+        }
+      });
+
+      if (finalSuggestedRoutes.length === 0 && ordersWithCoords.length > 0) {
+        const groupedByBarrio = ordersWithCoords.reduce((acc, order) => {
+          const key = order.barrio || 'Sin barrio';
+          if (!acc[key]) acc[key] = [];
+          acc[key].push(order);
+          return acc;
+        }, {});
+        Object.entries(groupedByBarrio).forEach(([barrio, barrioOrders]) => {
+          for (let i = 0; i < barrioOrders.length; i += maxPerRoute) {
+            finalSuggestedRoutes.push({
+              id: `route-${barrio}-${finalSuggestedRoutes.length}`,
+              zone: barrio,
+              orders: barrioOrders.slice(i, i + maxPerRoute)
+            });
+          }
+        });
+      }
+
+      response.json({
+        driverId,
+        suggestedRoutes: finalSuggestedRoutes,
+        sequence: finalSuggestedRoutes.length > 0 ? finalSuggestedRoutes[0].orders : []
+      });
+  } catch (error) {
+    console.error('[SERVER] >>> ERROR CRÍTICO EN /api/routes/suggest:', error);
+    response.status(500).json({
+      message: 'Error fatal en el motor logístico',
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
+app.get('/api/stats', (request, response) => {
+  const range = ['day', 'week', 'month'].includes(String(request.query.range || 'day'))
+    ? String(request.query.range || 'day')
+    : 'day';
+  const cutoffHour = toNumber(request.query.cutoffHour || 0); // Get cutoffHour from query parameter
+  response.json(buildStats(db, range, cutoffHour)); // Pass cutoffHour to buildStats
+});
+
+// Asignar una ruta a un domiciliario y persistir la sugerencia
+app.post('/api/routes/assign', (request, response) => {
+  try {
+    const driverId = request.body.driverId ? Number(request.body.driverId) : null;
+    const orderIds = Array.isArray(request.body.orderIds) ? request.body.orderIds.map(Number).filter(Boolean) : [];
+    const route = Array.isArray(request.body.route) ? request.body.route : [];
+    const DEPOT_LAT = 3.411568;
+    const DEPOT_LON = -76.515763;
+    const routeSummary = request.body.routeSummary && typeof request.body.routeSummary === 'object' ? request.body.routeSummary : null;
+
+    if (!driverId || !orderIds.length) {
+      return response.status(400).json({ message: 'driverId y orderIds son requeridos para asignar una ruta.' });
+    }
+
+    const driver = db.prepare('SELECT * FROM drivers WHERE id = ?').get(driverId);
+    if (!driver) return response.status(404).json({ message: 'Domiciliario no encontrado.' });
+
+    const now = getBogotaTimestamp();
+
+    const result = db.transaction(() => {
+      // Actualizar cada pedido: asignar driver y marcar como 'en ruta'
+      orderIds.forEach((oid) => {
+        db.prepare('UPDATE orders SET driver_id = ?, status = ?, updated_at = ? WHERE id = ?')
+          .run(driverId, 'en ruta', now, oid); // No changes here
+      });
+
+      // Actualizar estado del domiciliario
+      db.prepare('UPDATE drivers SET current_status = ?, updated_at = ? WHERE id = ?')
+        .run('en ruta', now, driverId); // No changes here
+
+      // Persistir una sugerencia de ruta (referencia al primer pedido)
+      const firstOrderId = orderIds[0] || 0;
+      const distanceKm = routeSummary && Number.isFinite(Number(routeSummary.distanceKm))
+        ? Number(routeSummary.distanceKm)
+        : Math.max(orderIds.length, 1) * 2.4; // Fallback estimate
+      const etaMinutes = routeSummary && Number.isFinite(Number(routeSummary.durationMin))
+        ? Number(routeSummary.durationMin)
+        : Math.max(orderIds.length, 1) * 8;
+      const enrichedRoute = route.map((item, index) => ({
+        ...item,
+        sequenceIndex: index + 1
+      })); // The route here is the optimized sequence of orders
+
+      const insert = db.prepare(`
+          INSERT INTO delivery_routes (order_id, driver_id, assigned_at, status, total_distance_km, total_eta_minutes, start_latitude, start_longitude, route_json, optimization_params_json)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(firstOrderId, driverId, now, 'completed', distanceKm, etaMinutes, DEPOT_LAT, DEPOT_LON, JSON.stringify(enrichedRoute), JSON.stringify(request.body.optimizationParams || {}));
+
+      return {
+        routeSuggestionId: insert.lastInsertRowid,
+        assignedOrders: orderIds,
+        driverId,
+        distanceKm,
+        etaMinutes,
+        routeSummary: routeSummary || null
+      };
+    })();
+
+    response.json({ ok: true, result });
+  } catch (error) {
+    console.error('Error asignando ruta:', error);
+    response.status(500).json({ message: 'Error interno al asignar la ruta.' });
+  }
+});
+
+app.get('/api/delivery-routes', (request, response) => {
+  try {
+    const routes = db.prepare(`
+        SELECT dr.id, dr.driver_id, dr.assigned_at, dr.status, dr.total_distance_km, dr.total_eta_minutes, dr.route_json, d.name AS driver_name
+        FROM delivery_routes dr
+        LEFT JOIN drivers d ON d.id = dr.driver_id
+        ORDER BY dr.assigned_at DESC
+      `).all();
+
+    // Parse route_json for each route
+    const parsedRoutes = routes.map(route => {
+      let orders = [];
+      try {
+        orders = JSON.parse(route.route_json);
+      } catch (e) {
+        console.error(`Error parsing route_json for delivery_route ID ${route.id}:`, e);
+      }
+      return { ...route, orders };
+    });
+
+    response.json(parsedRoutes);
+  } catch (error) {
+    console.error('Error fetching delivery routes history:', error);
+    response.status(500).json({ message: 'Error interno al cargar el historial de rutas.' });
+  }
+});
+
+// Manejador 404 específico para API (antes del comodín de HTML)
+app.use('/api', (request, response) => {
+  response.status(404).json({ message: `Ruta de API no encontrada: ${request.method} ${request.url}` });
+});
+
+app.get(/.*/, (_request, response) => {
+  response.sendFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+});
+
+const server = app.listen(0, '127.0.0.1');
+
+return new Promise((resolve) => {
+  server.on('listening', () => {
+    resolve({
+      app,
+      db,
+      server,
+      port: server.address().port
     });
   });
+});
 }
 
 module.exports = {
