@@ -18,7 +18,9 @@ data/*.sqlite.backup-*
 /.history/
 .bundle/
 coverage/
-/*.localnode_modules/
+/*.local
+osrm-data/*.pbf
+osrm-data/*.osmnode_modules/
 data/
 .DS_Store
 *.log
