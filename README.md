@@ -1,64 +1,126 @@
 # Sisped
 
-Aplicación de escritorio para comandas de domicilio, clientes, productos, domiciliarios, rutas y estadísticas.
+Aplicación de escritorio para la gestión de pedidos, clientes, domiciliarios, rutas y estadísticas.
 
 ## Descripción
-Sisped es una app local construida con Electron, Node.js y SQLite para gestionar pedidos, clientes, repartidores y rutas con estadísticas en tiempo real.
+Sisped es una aplicación local construida con Electron, Node.js y SQLite. Incluye un servidor HTTP embebido que sirve la interfaz y una API REST para administrar clientes, productos y pedidos.
 
 ## Requisitos
 - Node.js 18 o superior
-- Windows 10/11
-- Conexión a internet solo para instalar dependencias y subir al repositorio
+- npm (v9+)
+- Windows 10/11 (funciona también en Linux/macOS con Node/Electron instalados)
+- Docker (opcional, solo si quieres levantar OSRM localmente)
 
 ## Instalación
+1. Clona el repositorio y entra en la carpeta del proyecto.
+2. Instala dependencias:
+
 ```bash
 npm install
 ```
 
-## Ejecución
+## Ejecutar en modo desarrollo
+
+- Iniciar solo el servidor (útil para depurar la API):
+
+```bash
+npm run server
+```
+
+Al ejecutarlo el servidor se enlaza a `127.0.0.1` en un puerto libre y mostrará en consola la URL, por ejemplo:
+
+```
+Servidor listo en http://127.0.0.1:12345
+```
+
+- Iniciar la aplicación de escritorio (Electron). Esto arranca el servidor y abre la UI:
+
 ```bash
 npm start
 ```
 
-## Empaquetado
+## Salud y comprobaciones rápidas
+- Endpoint de salud: `GET /api/health` (devolverá `{ ok: true }`).
+- Comprobar sintaxis de archivos principales:
+
 ```bash
-npm run build
+npm run check
 ```
 
-Esto generará los archivos de salida en `dist/`.
+## OSRM (ruteo) — opcional
+
+La app puede usar una instancia de OSRM para optimización de rutas. Dos opciones:
+
+- Usar el servicio público (por defecto): `https://router.project-osrm.org`.
+- Levantar una instancia local con Docker usando el archivo `docker-compose.osrm.yml`:
+
+```bash
+docker compose -f docker-compose.osrm.yml up -d
+```
+
+O con `docker-compose` si lo prefieres:
+
+```bash
+docker-compose -f docker-compose.osrm.yml up -d
+```
+
+Después, exporta la variable de entorno para que la app use la instancia local:
+
+Windows PowerShell:
+
+```powershell
+$env:OSRM_BASE_URL = 'http://127.0.0.1:5000'
+npm start
+```
+
+Nota: el script `scripts/setup-osrm.ps1` facilita descargar y preparar el PBF en el volumen Docker. Léelo antes de ejecutar si trabajas con datos OSRM locales.
 
 ## Scripts útiles
-- `npm install`: instala dependencias
-- `npm start`: inicia la aplicación Electron
-- `npm run build`: crea el paquete instalable
-- `npm run check`: valida la sintaxis de los archivos principales
+- `npm install` — instala dependencias.
+- `npm run server` — arranca solo el servidor Node/Express.
+- `npm start` — arranca Electron (inicia el servidor y abre la UI).
+- `npm run check` — valida la sintaxis de archivos principales.
+- `npm run build` — empaqueta la app usando `electron-builder`.
 
-## Notas de datos
-- La base de datos local se crea en `data/shadday-wok.sqlite`.
-- El directorio `data/` y los archivos SQLite están excluidos del repositorio.
-- El archivo `osrm-data/region.osm.pbf` es demasiado grande para GitHub (>100 MB) y no se incluye en el repositorio. Si necesitas trabajar con OSRM, coloca manualmente el archivo `.pbf` en `osrm-data/`.
+## Datos y base de datos
+- La base de datos SQLite se crea en el directorio `data/` (p. ej. `data/shadday-wok.sqlite`).
+- No incluyas archivos de datos pesados en el repositorio (p. ej. `osrm-data/region.osm.pbf`).
 
-## Backfill horario
-Para normalizar timestamps históricos en UTC-5 (Bogotá), existe el script:
+## Scripts de mantenimiento
+- Normalizar timestamps históricos (zona Bogotá UTC-5):
+
 ```bash
 node scripts/backfill-bogota-time.js
 ```
 
+- Preparar OSRM y copiar PBF al volumen Docker (PowerShell helper):
+
+```powershell
+.\\scripts\\setup-osrm.ps1 -PbfUrl '<URL_DEL_PBF>'
+```
+
+## Verificación mínima manual
+1. `npm install`
+2. `npm run server` → acceder a `http://127.0.0.1:PORT/api/health`
+3. `npm start` → la UI debe abrirse y conectarse automáticamente al servidor interno
+
+## Empaquetado / Distribución
+Generar instaladores para Windows (NSIS) con:
+
+```bash
+npm run build
+```
+
+Los artefactos quedan en `dist/` según la configuración de `electron-builder`.
+
 ## Estructura del proyecto
-- `electron/` - proceso principal de Electron
-- `src/server/` - servidor local y lógica de datos
-- `src/renderer/` - interfaz gráfica y vistas
-- `scripts/` - utilidades y migraciones
-
-## Repositorio remoto
-- `https://github.com/AndresZapata0606/Sisped`
-
-## Verificación rápida
-1. Instalar dependencias con `npm install`
-2. Ejecutar `npm start`
-3. Crear clientes, productos y pedidos
-4. Verificar que las estadísticas se actualicen
+- `electron/` — proceso principal de Electron (`main.js`).
+- `src/server/` — API y lógica de negocio.
+- `src/renderer/` — cliente web servido por el servidor.
+- `scripts/` — utilidades (setup OSRM, backfill, etc.).
 
 ## Contribuir
-- Usa commits claros y descriptivos
-- Abre issues o pull requests en el repositorio remoto
+- Abre issues y pull requests.
+- Usa commits pequeños y descriptivos.
+
+Si quieres, puedo añadir comprobaciones automáticas, ejemplos de variables de entorno o un script `start:dev` con `concurrently` para desarrollo más cómodo. ¿Lo agrego?
