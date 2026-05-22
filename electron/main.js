@@ -15,6 +15,7 @@ async function createWindow() {
     height: 950,
     minWidth: 1280,
     minHeight: 800,
+    show: false,
     backgroundColor: '#0f172a',
     title: 'Shadday Wok',
     autoHideMenuBar: true,
@@ -22,6 +23,10 @@ async function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     }
+  });
+
+  win.once('ready-to-show', () => {
+    win.show();
   });
 
   await win.loadURL(`http://127.0.0.1:${serverInfo.port}`);

@@ -2565,6 +2565,15 @@ function renderRoutesGoogle(routeSuggestion) {
   googleMapInstance.fitBounds(bounds);
 }
 
+function hideSplashScreen() {
+  const splash = document.getElementById('splashScreen');
+  if (!splash || splash.classList.contains('splash-hidden')) return;
+  splash.classList.add('splash-hidden');
+  setTimeout(() => {
+    if (splash.parentNode) splash.parentNode.removeChild(splash);
+  }, 500);
+}
+
 function populateSampleOverview() {
   // Datos de ejemplo para mostrar la maqueta cuando no hay backend disponible
   dashboardState.products = [{ id: 1, name: 'Arroz Chaufa', active: 1 }, { id: 2, name: 'Pollo Teriyaki', active: 1 }];
@@ -2607,10 +2616,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Attach handlers that require DOM + data
     attachDetailUpdateHandler();
     attachOrderDetailActions();
-    // Setup modal opener for creating orders
+    // Setup modal opener para crear orders
     setupOrderModalOpener();
+    hideSplashScreen();
   });
+
   // Material Icons font is loaded; no runtime replace needed
+  setTimeout(hideSplashScreen, 5500);
 });
 
 // Handle updating order status from the detail panel
