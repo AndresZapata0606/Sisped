@@ -1,59 +1,64 @@
-# Shadday Wok
+# Sisped
 
-Aplicacion de escritorio para comandas de domicilio, clientes, productos, domiciliarios, rutas y estadisticas para Shadday Wok en Cali.
+Aplicación de escritorio para comandas de domicilio, clientes, productos, domiciliarios, rutas y estadísticas.
 
-## Alcance actual
-- Comandera de pedidos.
-- Busqueda y creacion de clientes por nombre o telefono.
-- Catalogo de productos.
-- Gestion de domiciliarios activos/inactivos.
-- Estadisticas por dia, semana y mes.
-- Base local en SQLite.
+## Descripción
+Sisped es una app local construida con Electron, Node.js y SQLite para gestionar pedidos, clientes, repartidores y rutas con estadísticas en tiempo real.
 
 ## Requisitos
-- Node.js 18 o superior.
-- Windows 10/11.
+- Node.js 18 o superior
+- Windows 10/11
+- Conexión a internet solo para instalar dependencias y subir al repositorio
 
-## Instalacion
+## Instalación
 ```bash
 npm install
 ```
 
-## Ejecucion
+## Ejecución
 ```bash
 npm start
 ```
 
-## Empaquetado (instalador)
-Instala `electron-builder` y ejecuta:
-
+## Empaquetado
 ```bash
 npm run build
 ```
 
-Esto generará instaladores en la carpeta `dist/` para la plataforma donde se ejecute.
+Esto generará los archivos de salida en `dist/`.
 
-## Release y versionado
-- Etiqueta la versión y empuja tags: `git tag -a v0.1.0 -m "v0.1.0" && git push --tags`.
-- Crea un Release en GitHub desde la etiqueta `v0.1.0`.
+## Scripts útiles
+- `npm install`: instala dependencias
+- `npm start`: inicia la aplicación Electron
+- `npm run build`: crea el paquete instalable
+- `npm run check`: valida la sintaxis de los archivos principales
 
-## Verificacion rapida
-1. Buscar un cliente por nombre o telefono.
-2. Crear un producto.
-3. Registrar un domiciliario.
-4. Crear una comanda con al menos un producto.
-5. Revisar las estadisticas del panel.
+## Notas de datos
+- La base de datos local se crea en `data/shadday-wok.sqlite`.
+- El directorio `data/` y los archivos SQLite están excluidos del repositorio.
+- El archivo `osrm-data/region.osm.pbf` es demasiado grande para GitHub (>100 MB) y no se incluye en el repositorio. Si necesitas trabajar con OSRM, coloca manualmente el archivo `.pbf` en `osrm-data/`.
 
-## Estructura
-- `electron/`: proceso principal de Electron.
-- `src/server/`: servidor local y SQLite.
-- `src/renderer/`: interfaz grafica.
-- `data/`: base SQLite generada automaticamente.
+## Backfill horario
+Para normalizar timestamps históricos en UTC-5 (Bogotá), existe el script:
+```bash
+node scripts/backfill-bogota-time.js
+```
 
-## Notas
-- La base se crea y se llena con datos demo al primer arranque.
-- La app corre localmente y no depende de un servidor externo para operar.
+## Estructura del proyecto
+- `electron/` - proceso principal de Electron
+- `src/server/` - servidor local y lógica de datos
+- `src/renderer/` - interfaz gráfica y vistas
+- `scripts/` - utilidades y migraciones
+
+## Repositorio remoto
+- `https://github.com/AndresZapata0606/Sisped`
+
+## Verificación rápida
+1. Instalar dependencias con `npm install`
+2. Ejecutar `npm start`
+3. Crear clientes, productos y pedidos
+4. Verificar que las estadísticas se actualicen
 
 ## Contribuir
-- Sigue el formato de commits: Conventional Commits.
-- Abre issues o pull requests en el repositorio remoto.
+- Usa commits claros y descriptivos
+- Abre issues o pull requests en el repositorio remoto
