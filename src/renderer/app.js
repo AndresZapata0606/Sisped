@@ -194,7 +194,7 @@ function getRouteCoordinate(order, index = 0) {
            (nAddress && nAddress.includes(nKey));
   });
 
-  const base = caliNeighborhoodCenters[bestKey] || [3.411568, -76.515763]; // Shadday Wok coordinates
+  const base = caliNeighborhoodCenters[bestKey] || [3.411568, -76.515763]; // SISPED SW coordinates
   const offsetSeed = hashString(`${order.address || ''}-${order.id}-${index}`);
   const latOffset = ((offsetSeed % 7) - 3) * 0.0012;
   const lngOffset = (((offsetSeed >> 3) % 7) - 3) * 0.0012;
@@ -639,7 +639,7 @@ async function geocodeAddressWithNominatim(address) {
     // Esto es un requisito de Nominatim para evitar bloqueos por abuso.
     const response = await fetch(`${NOMINATIM_URL}?${params.toString()}`, {
       headers: {
-        'User-Agent': 'ShaddayWok-DesktopApp/1.0 (contact@yourdomain.com)' // Reemplaza con tu User-Agent real
+        'User-Agent': 'SISPED-SW-DesktopApp/1.0 (contact@yourdomain.com)' // Reemplaza con tu User-Agent real
       }
     });
 
@@ -2264,7 +2264,7 @@ function renderRoutes(routeSuggestion, drivers) {
 
   try {
     if (!sequence.length) {
-      window.L.marker([3.411568, -76.515763]).addTo(routeLayerGroup).bindPopup('Shadday Wok · Sede República de Israel');
+      window.L.marker([3.411568, -76.515763]).addTo(routeLayerGroup).bindPopup('SISPED SW · Sede República de Israel');
       routeMapInstance.setView([3.411568, -76.515763], 14);
       return;
     }
@@ -2516,7 +2516,7 @@ function renderRoutesGoogle(routeSuggestion) {
     const restaurantMarker = new window.google.maps.marker.AdvancedMarkerElement({
       position: restaurantPos,
       map: googleMapInstance,
-      title: 'Shadday Wok (Sede)',
+      title: 'SISPED SW (Sede)',
       content: restaurantIcon
     });
     googleMarkers.push(restaurantMarker);
@@ -2524,7 +2524,7 @@ function renderRoutesGoogle(routeSuggestion) {
     const restaurantMarker = new window.google.maps.Marker({
       position: restaurantPos,
       map: googleMapInstance,
-      title: 'Shadday Wok'
+      title: 'SISPED SW'
     });
     googleMarkers.push(restaurantMarker);
   }

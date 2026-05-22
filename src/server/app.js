@@ -143,7 +143,7 @@ function createRouteSuggestion(db, orderId) {
 
   const route = [
     {
-      label: 'Restaurante Shadday Wok',
+      label: 'Restaurante SISPED SW',
       barrio: 'Punto base'
     },
     ...siblingOrders.map((item) => ({
@@ -311,7 +311,7 @@ async function startServer() {
   app.use(express.static(path.join(__dirname, '..', 'renderer')));
 
   app.get('/api/health', (_request, response) => {
-    response.json({ ok: true, app: 'Shadday Wok' });
+    response.json({ ok: true, app: 'SISPED SW' });
   });
 
   app.get('/api/clients', (request, response) => {

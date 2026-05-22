@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Shadday Wok</title>
+    <title>SISPED SW</title>
     <link rel="stylesheet" href="/styles.css" />
     
     <!-- Tipografías e Iconografía Premium (Material Symbols & Font Awesome) -->
@@ -27,9 +27,12 @@
   <body>
     <div id="splashScreen" class="splash-screen" role="status" aria-live="polite">
       <div class="splash-card">
-        <div class="splash-brand">SW</div>
+        <div class="splash-brand splash-logo">
+          <img class="splash-brand-logo" src="/assets/logo.png" alt="SISPED SW" onload="this.style.display='block'; this.parentNode.querySelector('.brand-mark-text').style.display='none';" onerror="this.style.display='none';" />
+          <span class="brand-mark-text">SW</span>
+        </div>
         <div class="splash-copy">
-          <strong>Shadday Wok</strong>
+          <strong>SISPED SW</strong>
           <p>Inicializando controles de pedidos, rutas y operaciones.</p>
         </div>
         <div class="splash-spinner" aria-hidden="true"></div>
@@ -40,9 +43,12 @@
     <div class="app-shell">
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
-          <span class="brand-mark">SW</span>
+          <div class="brand-mark">
+            <img class="brand-logo" src="/assets/logo.png" alt="SISPED SW" onload="this.style.display='block'; this.parentNode.querySelector('.brand-mark-text').style.display='none';" onerror="this.style.display='none';" />
+            <span class="brand-mark-text">SW</span>
+          </div>
           <div class="sidebar-brand-copy">
-            <strong>Shadday Wok</strong>
+            <strong>SISPED SW</strong>
             <p>Dashboard operativo</p>
           </div>
           <span class="sidebar-live-pill">Live</span>
@@ -120,7 +126,7 @@
         <header class="topbar">
           <button type="button" id="sidebarToggle" class="icon-button" aria-label="Abrir menu lateral">☰</button>
           <div>
-            <p class="eyebrow">Shadday Wok · Operacion diaria</p>
+            <p class="eyebrow">SISPED SW · Operación diaria</p>
             <h1>Dashboard de comandas, clientes y domicilios</h1>
           </div>
           <div class="topbar-chip">Cali, Colombia</div>

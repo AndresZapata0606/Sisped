@@ -1,15 +1,16 @@
 {
-  "name": "shadday-wok",
+  "name": "sisped-sw",
   "version": "0.1.0",
   "author": "Victor Zapata",
   "private": true,
-  "description": "Aplicacion de escritorio para comandas, clientes, domiciliarios, rutas y estadisticas de Shadday Wok.",
+  "description": "Aplicacion de escritorio para comandas, clientes, domiciliarios, rutas y estadisticas de SISPED SW.",
   "main": "electron/main.js",
   "type": "commonjs",
   "scripts": {
     "start": "electron .",
     "server": "node src/server/app.js",
     "check": "node --check electron/main.js && node --check src/server/app.js && node --check src/server/db.js && node --check src/renderer/app.js",
+    "make-icon": "node scripts/make-icon.js",
     "pack": "electron-builder --dir",
     "dist": "electron-builder",
     "build": "electron-builder --publish=never"
@@ -22,11 +23,12 @@
   ,
   "devDependencies": {
     "electron-builder": "^24.0.0",
-    "electron": "^35.1.4"
+    "electron": "^35.1.4",
+    "png-to-ico": "^1.0.0"
   },
   "build": {
-    "appId": "com.shadday.wok",
-    "productName": "Shadday Wok",
+    "appId": "com.sisped.sw",
+    "productName": "SISPED SW",
     "files": ["**/*", "!node_modules/*/.cache"],
     "directories": {
       "buildResources": "build",

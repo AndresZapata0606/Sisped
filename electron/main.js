@@ -17,7 +17,7 @@ async function createWindow() {
     minHeight: 800,
     show: false,
     backgroundColor: '#0f172a',
-    title: 'Shadday Wok',
+    title: 'SISPED SW',
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
