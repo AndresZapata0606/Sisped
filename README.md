@@ -118,9 +118,3 @@ Los artefactos quedan en `dist/` según la configuración de `electron-builder`.
 - `src/server/` — API y lógica de negocio.
 - `src/renderer/` — cliente web servido por el servidor.
 - `scripts/` — utilidades (setup OSRM, backfill, etc.).
-
-## Contribuir
-- Abre issues y pull requests.
-- Usa commits pequeños y descriptivos.
-
-Si quieres, puedo añadir comprobaciones automáticas, ejemplos de variables de entorno o un script `start:dev` con `concurrently` para desarrollo más cómodo. ¿Lo agrego?
