@@ -115,6 +115,8 @@ async function createSqlDatabase() {
       name TEXT NOT NULL,
       phone TEXT NOT NULL UNIQUE,
       notes TEXT DEFAULT '',
+      archived INTEGER NOT NULL DEFAULT 0,
+      archived_at TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -227,6 +229,16 @@ async function createSqlDatabase() {
       polygon_json TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS order_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      items TEXT NOT NULL DEFAULT '[]',
+      payment_type TEXT DEFAULT '',
+      payment_amount REAL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Asegurar columnas de lat/lng en tablas existentes (para migraciones en caliente)
@@ -261,6 +273,27 @@ async function createSqlDatabase() {
 
   try {
     db.exec(`ALTER TABLE client_addresses ADD COLUMN geocoding_source TEXT;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE clients ADD COLUMN archived_at TEXT;`);
+  } catch (e) { }
+
+  // Migraciones para campos de pago y cambio
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN payment_type TEXT DEFAULT 'exact';`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN payment_amount REAL;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN change REAL DEFAULT 0;`);
   } catch (e) { }
 
   // Migraciones para delivery_routes (asegurar compatibilidad con el historial avanzado)

@@ -532,8 +532,7 @@
                 </div>
               </section>
 
-              <div style="display: grid; grid-template-columns: 1fr 380px; gap: 24px; align-items: start; width: 100%;">
-                <!-- Tabla de Clientes -->
+              <div style="display: flex; flex-direction: column; gap: 24px; align-items: start; width: 100%;">
                 <div class="panel panel-table" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 20px; width: 100%;">
                   <div class="panel-header" style="display: flex; flex-direction: column; gap: 16px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
@@ -559,7 +558,6 @@
                     </table>
                   </div>
 
-                  <!-- Footer de paginación para Clientes -->
                   <div class="table-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--panel-border); padding-top: 16px;">
                     <div class="table-meta" style="font-size: 12px; color: var(--muted);">
                       Mostrando <span id="clientsTableRange" style="font-weight: 600; color: var(--text-primary);">0</span> clientes
@@ -567,28 +565,6 @@
                     <div class="pagination" id="clientsPagination" style="display: flex; gap: 4px;"></div>
                   </div>
                 </div>
-
-                <!-- Detalle Lateral del Cliente -->
-                <aside class="orders-sidebar">
-                  <div class="panel detail-panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; display: flex; flex-direction: column; gap: 20px; backdrop-filter: blur(15px);">
-                    <div class="panel-header" style="border-bottom: 1px solid var(--panel-border); padding-bottom: 16px;">
-                      <h3 style="font-size: 16px; font-weight: 700;">Perfil del Cliente</h3>
-                    </div>
-                    <div id="clientDetailBody" style="display: flex; flex-direction: column; gap: 16px;">
-                      <div class="subtle" style="text-align: center; padding: 40px 0;">
-                        Selecciona un cliente para ver su historial y detalles
-                      </div>
-                    </div>
-                    <div class="panel-footer" id="clientDetailActions" style="display: none; border-top: 1px solid var(--panel-border); padding-top: 16px; margin-top: auto; display: flex; flex-direction: column; gap: 8px;">
-                      <button class="primary" id="editClientDetailBtn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
-                        <span class="material-symbols-rounded" style="font-size: 18px;">edit</span> Editar Información
-                      </button>
-                      <button class="btn-danger" id="deleteClientDetailBtn" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;">
-                        <span class="material-symbols-rounded" style="font-size: 18px;">delete</span> Eliminar Cliente
-                      </button>
-                    </div>
-                  </div>
-                </aside>
               </div>
             </div>
           </section>
@@ -1000,6 +976,7 @@
           <input type="hidden" name="clientId" />
           <input type="hidden" name="latitude" />
           <input type="hidden" name="longitude" />
+          <input type="hidden" name="geocodingSource" />
           <input type="hidden" name="barrio" />
           <div class="form-grid-modal">
             <div class="stack-form">
@@ -1047,10 +1024,29 @@
     <!-- Plantilla para el formulario de comanda -->
     <template id="orderFormTemplate">
       <form id="orderForm" class="order-form modal-order-form" style="display: flex; flex-direction: column; gap: 20px;">
+        <input type="hidden" name="clientId" />
+        <input type="hidden" name="selectedAddressId" />
         <input type="hidden" name="latitude" />
         <input type="hidden" name="longitude" />
         <input type="hidden" name="barrio" />
         <input type="hidden" name="geocodingSource" />
+        
+        <!-- BARRA DE UTILIDADES Y ACCIONES RÁPIDAS -->
+        <div class="panel" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: 12px; padding: 14px; display: flex; gap: 8px; flex-wrap: wrap;">
+          <button type="button" class="btn-secondary" id="duplicateLastOrderBtn" style="font-size: 12px; padding: 8px 12px; display: flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-rounded" style="font-size: 16px;">content_copy</span>
+            <span>Duplicar Última</span>
+          </button>
+          <button type="button" class="btn-secondary" id="createFromTemplateBtn" style="font-size: 12px; padding: 8px 12px; display: flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-rounded" style="font-size: 16px;">bookmark</span>
+            <span>Plantilla</span>
+          </button>
+          <button type="button" class="btn-secondary" id="showOrderSummaryBtn" style="font-size: 12px; padding: 8px 12px; display: flex; align-items: center; gap: 6px;">
+            <span class="material-symbols-rounded" style="font-size: 16px;">summarize</span>
+            <span>Resumen</span>
+          </button>
+        </div>
+
         <div class="order-modal-grid" style="display: grid; grid-template-columns: 1fr 400px; gap: 24px;">
           <div class="order-modal-left" style="display: flex; flex-direction: column; gap: 20px;">
             <!-- Cliente y Ubicación -->
@@ -1071,12 +1067,22 @@
                   <input name="phone" type="text" placeholder="300 000 0000" required style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);" />
                 </div>
               </div>
+              <div id="orderClientMatchPanel" style="display:none; margin-bottom: 16px; padding: 12px; border-radius: 14px; border: 1px solid rgba(59,130,246,0.2); background: rgba(59,130,246,0.06);">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap: 10px; margin-bottom: 10px;">
+                  <strong style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-primary);">Cliente detectado</strong>
+                  <span class="subtle" style="font-size: 11px;">Selecciona un cliente existente o sigue manual</span>
+                </div>
+                <div id="orderClientMatchResults" style="display:flex; flex-direction:column; gap: 8px;"></div>
+              </div>
               <div class="stack-form">
                 <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Dirección de entrega</label>
                 <div style="display: flex; gap: 10px;">
                   <input name="address" type="text" placeholder="Calle / Carrera # Numero" required style="flex: 1; background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);" />
-                  <button type="button" class="mini-action" id="validateOrderAddressBtn" style="white-space: nowrap;"><span class="material-symbols-rounded" style="font-size: 18px;">location_searching</span></button>
                 </div>
+              </div>
+              <div id="orderSavedAddressWrap" class="stack-form" style="display:none; margin-top: 12px;">
+                <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Direcciones guardadas</label>
+                <select id="orderSavedAddressSelect" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); padding: 10px; border-radius: 10px;"></select>
               </div>
               <div class="mini-map-preview" style="height: 140px; margin-top: 16px; border-radius: 12px; border: 1px solid var(--panel-border); background: #07111f;"></div>
             </div>
@@ -1122,13 +1128,10 @@
                 <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Notas del Pedido</label>
                 <textarea name="notes" rows="2" placeholder="Observaciones..." style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border);"></textarea>
               </div>
-              <div style="margin-top: 20px; display: flex; gap: 10px;">
-                <button type="button" class="btn-secondary" id="clearOrderForm" style="flex: 1; padding: 10px; font-size: 13px;">Limpiar Formulario</button>
-              </div>
             </div>
           </div>
 
-          <aside class="order-modal-right" style="display: flex; flex-direction: column; gap: 20px;">
+          <aside class="order-modal-right">
             <!-- Items de la Comanda -->
             <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 20px; flex-grow: 1; display: flex; flex-direction: column;">
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 18px;">
@@ -1152,9 +1155,9 @@
               </div>
             </div>
 
-            <!-- Resumen Financiero -->
-            <div class="panel summary-box" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(0,0,0,0.4) 100%); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 18px; padding: 20px;">
-              <div style="display: flex; flex-direction: column; gap: 12px;">
+            <!-- Resumen Financiero + Pago y Cambio -->
+            <div class="panel finance-card" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1) 0%, rgba(0,0,0,0.4) 100%); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 18px; padding: 20px;">
+              <div class="finance-summary" style="display: flex; flex-direction: column; gap: 12px;">
                 <div style="display: flex; justify-content: space-between; font-size: 14px; color: var(--muted);">
                   <span>Subtotal Items</span>
                   <strong id="detailSubtotal" style="color: var(--text-primary);">$0</strong>
@@ -1167,6 +1170,34 @@
                 <div style="display: flex; justify-content: space-between; align-items: baseline;">
                   <span style="font-weight: 700; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em; color: var(--accent);">Total a Pagar</span>
                   <strong id="detailTotal" style="font-size: 28px; font-weight: 800; color: var(--accent); letter-spacing: -0.02em;">$0</strong>
+                </div>
+              </div>
+
+              <div class="finance-payment" style="display: flex; flex-direction: column; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.08);">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+                  <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(34, 197, 94, 0.2); color: #22c55e; display: flex; align-items: center; justify-content: center;">
+                    <span class="material-symbols-rounded" style="font-size: 20px;">local_atm</span>
+                  </div>
+                  <h3 style="font-size: 14px; font-weight: 700; margin: 0; text-transform: uppercase; letter-spacing: 0.05em;">Pago y Cambio</h3>
+                </div>
+
+                <div class="stack-form">
+                  <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Tipo de Pago</label>
+                  <select id="paymentTypeSelect" name="paymentType" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); padding: 10px; border-radius: 8px; width: 100%;">
+                    <option value="exact">Pago Completo</option>
+                    <option value="change">Con Cambio</option>
+                  </select>
+                </div>
+
+                <div id="paymentChangeFields" style="display: none; flex-direction: column; gap: 12px;">
+                  <div class="stack-form">
+                    <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Cantidad que Paga el Cliente</label>
+                    <input id="paymentAmountInput" name="paymentAmount" type="number" min="0" step="1000" placeholder="0" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); padding: 10px; border-radius: 8px; width: 100%; color: var(--text-primary);" />
+                  </div>
+                  <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); border-radius: 8px;">
+                    <span style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Cambio a Devolver</span>
+                    <strong id="changeAmount" style="font-size: 18px; font-weight: 800; color: #22c55e; letter-spacing: -0.02em;">$0</strong>
+                  </div>
                 </div>
               </div>
             </div>

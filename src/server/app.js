@@ -183,6 +183,58 @@ function normalizeAddressKey(row) {
     .join('|');
 }
 
+function getClientById(db, clientId) {
+  const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
+  if (!client) return null;
+  return {
+    ...client,
+    ...getClientAddressSnapshotForDb(db, clientId)
+  };
+}
+
+function getClientAddressSnapshotForDb(db, clientId) {
+  const savedAddresses = db.prepare(`
+    SELECT * FROM client_addresses
+    WHERE client_id = ?
+    ORDER BY is_primary DESC, created_at DESC, id DESC
+  `).all(clientId).map((address) => ({ ...address, source: 'saved' }));
+
+  const orderAddresses = db.prepare(`
+    SELECT o.id AS order_id, o.address, o.barrio, o.reference, o.latitude, o.longitude, o.created_at
+    FROM orders o
+    WHERE o.client_id = ? AND TRIM(COALESCE(o.address, '')) <> ''
+    ORDER BY o.created_at DESC, o.id DESC
+  `).all(clientId).map((order) => ({
+    client_id: clientId,
+    id: `order-${order.order_id}`,
+    label: `Pedido #${order.order_id}`,
+    address: order.address,
+    barrio: order.barrio,
+    reference: order.reference,
+    latitude: order.latitude,
+    longitude: order.longitude,
+    is_primary: 0,
+    created_at: order.created_at,
+    source: 'order'
+  }));
+
+  const mergedAddresses = [];
+  const seen = new Set();
+
+  [...savedAddresses, ...orderAddresses].forEach((address) => {
+    const key = normalizeAddressKey(address);
+    if (seen.has(key)) return;
+    seen.add(key);
+    mergedAddresses.push(address);
+  });
+
+  return {
+    addresses: mergedAddresses,
+    primaryAddress: mergedAddresses.find((address) => address.is_primary) || mergedAddresses[0] || null,
+    addressCount: mergedAddresses.length
+  };
+}
+
 function backfillClientAddressesFromOrders(db) {
   const historicalAddresses = db.prepare(`
     SELECT o.client_id, o.address, o.barrio, o.reference, o.latitude, o.longitude, o.created_at
@@ -316,14 +368,17 @@ async function startServer() {
 
   app.get('/api/clients', (request, response) => {
     const search = String(request.query.q || '').trim();
+    const includeArchived = String(request.query.includeArchived || '0') === '1';
+    const archivedClause = includeArchived ? '' : 'AND COALESCE(c.archived, 0) = 0';
     const clients = search
       ? db.prepare(`
           SELECT c.* FROM clients c
-          WHERE c.name LIKE ? OR c.phone LIKE ?
+          WHERE (c.name LIKE ? OR c.phone LIKE ?) ${archivedClause}
           ORDER BY c.updated_at DESC
         `).all(`%${search}%`, `%${normalizePhone(search)}%`)
       : db.prepare(`
           SELECT c.* FROM clients c
+          WHERE COALESCE(c.archived, 0) = 0
           ORDER BY c.updated_at DESC
           LIMIT 20
         `).all();
@@ -347,9 +402,122 @@ async function startServer() {
     }
   });
 
+  app.post('/api/clients', (request, response) => {
+    try {
+      const name = String(request.body.name || '').trim();
+      const phone = normalizePhone(request.body.phone);
+      const notes = String(request.body.notes || '').trim();
+
+      if (!name || !phone) {
+        return response.status(400).json({ message: 'Nombre y teléfono son obligatorios.' });
+      }
+
+      const exists = db.prepare('SELECT * FROM clients WHERE phone = ?').get(phone);
+      if (exists) {
+        return response.status(409).json({ message: 'Ya existe un cliente con ese teléfono.' });
+      }
+
+      const result = db.prepare('INSERT INTO clients (name, phone, notes, archived) VALUES (?, ?, ?, 0)').run(name, phone, notes);
+      db.save();
+      response.status(201).json(db.prepare('SELECT * FROM clients WHERE id = ?').get(result.lastInsertRowid));
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch('/api/clients/:id', (request, response) => {
+    try {
+      const id = Number(request.params.id);
+      const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(id);
+      if (!client) {
+        return response.status(404).json({ message: 'Cliente no encontrado.' });
+      }
+
+      const name = String(request.body.name || client.name).trim();
+      const phone = request.body.phone !== undefined ? normalizePhone(request.body.phone) : client.phone;
+      const notes = String(request.body.notes || client.notes || '').trim();
+
+      if (!name || !phone) {
+        return response.status(400).json({ message: 'Nombre y teléfono son obligatorios.' });
+      }
+
+      const duplicate = db.prepare('SELECT id FROM clients WHERE phone = ? AND id != ?').get(phone, id);
+      if (duplicate) {
+        return response.status(409).json({ message: 'Ya existe otro cliente con ese teléfono.' });
+      }
+
+      db.prepare(`
+        UPDATE clients
+        SET name = ?, phone = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(name, phone, notes, id);
+      db.save();
+      response.json(db.prepare('SELECT * FROM clients WHERE id = ?').get(id));
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch('/api/clients/:id/archive', (request, response) => {
+    try {
+      const id = Number(request.params.id);
+      db.prepare(`
+        UPDATE clients
+        SET archived = 1, archived_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(id);
+      db.save();
+      response.json(db.prepare('SELECT * FROM clients WHERE id = ?').get(id));
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
+  });
+
+  app.patch('/api/clients/:id/restore', (request, response) => {
+    try {
+      const id = Number(request.params.id);
+      db.prepare(`
+        UPDATE clients
+        SET archived = 0, archived_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(id);
+      db.save();
+      response.json(db.prepare('SELECT * FROM clients WHERE id = ?').get(id));
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
+  });
+
+  app.post('/api/clients/:id/merge', (request, response) => {
+    try {
+      const targetId = Number(request.params.id);
+      const sourceId = Number(request.body.sourceClientId);
+      if (!targetId || !sourceId || targetId === sourceId) {
+        return response.status(400).json({ message: 'IDs de fusión inválidos.' });
+      }
+
+      const targetClient = db.prepare('SELECT * FROM clients WHERE id = ?').get(targetId);
+      const sourceClient = db.prepare('SELECT * FROM clients WHERE id = ?').get(sourceId);
+      if (!targetClient || !sourceClient) {
+        return response.status(404).json({ message: 'Cliente origen o destino no encontrado.' });
+      }
+
+      db.transaction(() => {
+        db.prepare('UPDATE orders SET client_id = ? WHERE client_id = ?').run(targetId, sourceId);
+        db.prepare('UPDATE client_addresses SET client_id = ? WHERE client_id = ?').run(targetId, sourceId);
+        db.prepare('DELETE FROM clients WHERE id = ?').run(sourceId);
+      })();
+
+      db.save();
+      response.json(db.prepare('SELECT * FROM clients WHERE id = ?').get(targetId));
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
+  });
+
   app.get('/api/clients/:id/addresses', (request, response) => {
     const clientId = Number(request.params.id);
-    const snapshot = getClientAddressSnapshot(clientId);
+    const snapshot = getClientAddressSnapshotForDb(db, clientId);
     response.json(snapshot.addresses);
   });
 
@@ -376,7 +544,29 @@ async function startServer() {
   });
 
   app.delete('/api/addresses/:id', (request, response) => {
-    db.prepare('DELETE FROM client_addresses WHERE id = ? AND is_primary = 0').run(request.params.id);
+    const address = db.prepare('SELECT id, client_id, is_primary FROM client_addresses WHERE id = ?').get(request.params.id);
+    if (!address) {
+      return response.status(404).json({ message: 'Dirección no encontrada.' });
+    }
+
+    db.transaction(() => {
+      db.prepare('DELETE FROM client_addresses WHERE id = ?').run(request.params.id);
+
+      if (Number(address.is_primary) === 1) {
+        const nextPrimary = db.prepare(`
+          SELECT id
+          FROM client_addresses
+          WHERE client_id = ?
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        `).get(address.client_id);
+
+        if (nextPrimary) {
+          db.prepare('UPDATE client_addresses SET is_primary = 1 WHERE id = ?').run(nextPrimary.id);
+        }
+      }
+    })();
+
     db.save();
     response.status(204).send();
   });
@@ -780,6 +970,39 @@ async function startServer() {
     })));
   });
 
+  // Endpoints para plantillas de comanda (order_templates)
+  app.get('/api/templates', (_request, response) => {
+    const rows = db.prepare('SELECT * FROM order_templates ORDER BY datetime(created_at) DESC LIMIT 200').all();
+    // Convertir items JSON a objetos
+    const parsed = rows.map(r => {
+      try { r.items = JSON.parse(r.items || '[]'); } catch (e) { r.items = []; }
+      return r;
+    });
+    response.json(parsed);
+  });
+
+  app.post('/api/templates', (request, response) => {
+    const body = request.body || {};
+    const name = String(body.name || 'Sin nombre').trim();
+    const itemsJson = JSON.stringify(Array.isArray(body.items) ? body.items : []);
+    const paymentType = String(body.paymentType || '').trim();
+    const paymentAmount = body.paymentAmount !== undefined && body.paymentAmount !== null ? Number(body.paymentAmount) : null;
+
+    const result = db.prepare('INSERT INTO order_templates (name, items, payment_type, payment_amount) VALUES (?, ?, ?, ?)').run(name, itemsJson, paymentType, paymentAmount);
+    db.save();
+    const id = result.lastInsertRowid;
+    const tpl = db.prepare('SELECT * FROM order_templates WHERE id = ?').get(id);
+    try { tpl.items = JSON.parse(tpl.items || '[]'); } catch (e) { tpl.items = []; }
+    response.status(201).json(tpl);
+  });
+
+  app.delete('/api/templates/:id', (request, response) => {
+    const id = Number(request.params.id);
+    db.prepare('DELETE FROM order_templates WHERE id = ?').run(id);
+    db.save();
+    response.status(204).send();
+  });
+
   app.post('/api/orders', async (request, response) => {
     try {
       const createdOrder = db.transaction(() => {
@@ -791,9 +1014,20 @@ async function startServer() {
         const geocodingSource = String(request.body.geocodingSource || '').trim();
         const urgencyLevel = String(request.body.urgencyLevel || 'low').trim();
         const deliveryBufferMinutes = Number(request.body.deliveryBufferMinutes || 0);
+        const paymentType = String(request.body.paymentType || 'exact').trim();
+        const paymentAmount = request.body.paymentAmount ? Number(request.body.paymentAmount) : null;
+        const change = request.body.change ? Number(request.body.change) : null;
+        const selectedAddressId = request.body.selectedAddressId ? Number(request.body.selectedAddressId) : null;
+        const explicitClientId = clientData.clientId ? Number(clientData.clientId) : null;
 
         // 1. Resolver Cliente
-        let client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(normalizePhone(clientData.phone));
+        let client = null;
+        if (explicitClientId) {
+          client = db.prepare('SELECT * FROM clients WHERE id = ?').get(explicitClientId);
+        }
+        if (!client) {
+          client = db.prepare('SELECT * FROM clients WHERE phone = ?').get(normalizePhone(clientData.phone));
+        }
         let clientId;
 
         if (client) {
@@ -810,7 +1044,7 @@ async function startServer() {
             }
           } catch (e) { /* ignore */ }
 
-          if (clientData.address) {
+          if (clientData.address && !selectedAddressId) {
             if (request.body.setPrimaryAddress !== false) {
               db.prepare('UPDATE client_addresses SET is_primary = 0 WHERE client_id = ?').run(clientId);
             }
@@ -823,7 +1057,7 @@ async function startServer() {
           const clientResult = insertClient.run(String(clientData.name || '').trim(), normalizePhone(clientData.phone), String(clientData.notes || '').trim());
           clientId = clientResult.lastInsertRowid;
 
-          if (clientData.address) {
+          if (clientData.address && !selectedAddressId) {
             db.prepare('INSERT INTO client_addresses (client_id, label, address, barrio, reference, is_primary, latitude, longitude, geocoding_source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
               .run(clientId, 'principal', String(clientData.address || '').trim(), String(clientData.barrio || '').trim(), String(clientData.reference || '').trim(), 1, clientData.latitude ? Number(clientData.latitude) : null, clientData.longitude ? Number(clientData.longitude) : null, geocodingSource || null);
           }
@@ -848,8 +1082,8 @@ async function startServer() {
         // 4. Crear Pedido
         const createdAt = getBogotaTimestamp();
         const orderResult = db.prepare(`
-          INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone, latitude, longitude, geocoding_source, urgency_level, delivery_buffer_minutes, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO orders (client_id, driver_id, status, payment_method, barrio, address, reference, notes, total, route_zone, latitude, longitude, geocoding_source, urgency_level, delivery_buffer_minutes, payment_type, payment_amount, change, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           clientId,
           driverId,
@@ -866,6 +1100,9 @@ async function startServer() {
           geocodingSource || null,
           urgencyLevel,
           deliveryBufferMinutes,
+          paymentType,
+          paymentAmount,
+          change,
           createdAt
         );
 
@@ -915,6 +1152,9 @@ async function startServer() {
         const geocodingSource = String(request.body.geocodingSource || '').trim();
         const urgencyLevel = String(request.body.urgencyLevel || 'low').trim();
         const deliveryBufferMinutes = Number(request.body.deliveryBufferMinutes || 0);
+        const paymentType = String(request.body.paymentType || 'exact').trim();
+        const paymentAmount = request.body.paymentAmount ? Number(request.body.paymentAmount) : null;
+        const change = request.body.change ? Number(request.body.change) : null;
 
         const productLookup = db.prepare('SELECT * FROM products WHERE id = ?');
         const total = items.reduce((sum, item) => {
@@ -924,7 +1164,7 @@ async function startServer() {
 
         db.prepare(`
           UPDATE orders
-          SET driver_id = ?, payment_method = ?, barrio = ?, address = ?, reference = ?, notes = ?, total = ?, latitude = ?, longitude = ?, geocoding_source = ?, urgency_level = ?, delivery_buffer_minutes = ?, updated_at = ?
+          SET driver_id = ?, payment_method = ?, barrio = ?, address = ?, reference = ?, notes = ?, total = ?, latitude = ?, longitude = ?, geocoding_source = ?, urgency_level = ?, delivery_buffer_minutes = ?, payment_type = ?, payment_amount = ?, change = ?, updated_at = ?
           WHERE id = ? 
         `).run(
           driverId,
@@ -939,6 +1179,9 @@ async function startServer() {
           geocodingSource || null,
           urgencyLevel,
           deliveryBufferMinutes,
+          paymentType,
+          paymentAmount,
+          change,
           getBogotaTimestamp(),
           orderId
         );
@@ -1014,6 +1257,94 @@ async function startServer() {
     db.prepare(updateSql).run(params);
     db.save(); // Persist changes
     response.json(db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId));
+  });
+
+  // Endpoint para cancelar comanda (Función 9)
+  app.patch('/api/orders/:id/cancel', (request, response) => {
+    try {
+      const orderId = Number(request.params.id);
+      const reason = String(request.body.reason || 'Sin motivo especificado').trim();
+      const now = getBogotaTimestamp();
+
+      const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(orderId);
+      if (!order) {
+        return response.status(404).json({ message: 'Comanda no encontrada' });
+      }
+
+      if (['entregado', 'cancelado'].includes(order.status)) {
+        return response.status(400).json({ message: `No se puede cancelar comanda en estado ${order.status}` });
+      }
+
+      db.prepare(`
+        UPDATE orders 
+        SET status = 'cancelado', cancelled_reason = ?, updated_at = ? 
+        WHERE id = ?
+      `).run(reason, now, orderId);
+
+      db.save();
+      response.json({ ok: true, message: 'Comanda cancelada exitosamente' });
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
+  });
+
+  // Endpoint para pausar comanda (Función 10)
+  app.patch('/api/orders/:id/pause', (request, response) => {
+    try {
+      const orderId = Number(request.params.id);
+      const reason = String(request.body.reason || 'Pausa temporal').trim();
+      const now = getBogotaTimestamp();
+
+      const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(orderId);
+      if (!order) {
+        return response.status(404).json({ message: 'Comanda no encontrada' });
+      }
+
+      if (!['nuevo', 'listo para salir'].includes(order.status)) {
+        return response.status(400).json({ message: `No se puede pausar comanda en estado ${order.status}` });
+      }
+
+      db.prepare(`
+        UPDATE orders 
+        SET status = 'pausada', notes = COALESCE(notes, '') || ' | Pausa: ' || ?, updated_at = ? 
+        WHERE id = ?
+      `).run(reason, now, orderId);
+
+      db.save();
+      response.json({ ok: true, message: 'Comanda pausada' });
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
+  });
+
+  // Endpoint para verificar crédito del cliente (Función 2)
+  app.get('/api/clients/:clientId/credit-check', (request, response) => {
+    try {
+      const clientId = Number(request.params.clientId);
+      
+      // Configuración de crédito (se puede hacer dinámico después)
+      const creditLimit = 500000; // $500k por defecto
+      
+      // Calcular crédito usado en órdenes no pagadas
+      const unpaidOrders = db.prepare(`
+        SELECT COALESCE(SUM(total), 0) as total_debt
+        FROM orders
+        WHERE client_id = ? AND status NOT IN ('entregado', 'cancelado', 'pagado')
+      `).get(clientId);
+      
+      const usedCredit = unpaidOrders?.total_debt || 0;
+      const availableCredit = creditLimit - usedCredit;
+      
+      response.json({
+        clientId,
+        creditLimit,
+        usedCredit,
+        availableCredit,
+        creditStatus: availableCredit > 0 ? 'ok' : 'exceeded'
+      });
+    } catch (error) {
+      response.status(400).json({ message: error.message });
+    }
   });
 
   // API para Zonas Peligrosas

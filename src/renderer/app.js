@@ -10,6 +10,10 @@ let googleDebugOverlays = [];
 let googlePolyline = null;
 let drawnItems = null; // Para Leaflet.draw
 
+function normalizePhone(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
 // --- CONFIGURACIÓN LOGÍSTICA AVANZADA ---
 let LOGISTICS_CONFIG = {
   maxRouteDistanceKm: 12,
@@ -225,51 +229,24 @@ function wireSidebarNavigation() {
       selectedPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    // Re-render the active section so the data list is never stale.
+    if (viewName === 'clients') {
+      try {
+        renderClients();
+      } catch (err) {
+        console.error('Error rendering clients view', err);
+      }
+    }
+
     // If switching to orders view, re-render orders table
     if (viewName === 'orders') {
       try {
         renderOrders(dashboardState.orders || []);
-      } catch (e) {
-        console.warn('Error rendering orders on view switch', e);
+      } catch (err) {
+        console.error('Error rendering orders view', err);
       }
-    }
-
-    if (viewName === 'clients') {
-      renderClients();
-    }
-
-    if (viewName === 'catalog') {
-      renderProducts(dashboardState.products);
-    }
-
-    if (viewName === 'drivers') {
-      renderDrivers(dashboardState.drivers);
-    }
-
-    if (viewName === 'routes') {
-      // Fuerza el redibujado del mapa y centra la vista en el restaurante o la ruta actual
-      renderRoutes(dashboardState.routeSuggestion, dashboardState.drivers);
-    }
-
-    if (viewName === 'route-history') {
-      renderDeliveryRoutesHistory();
-    }
-
-    if (window.innerWidth <= 840) {
-      document.body.classList.remove('sidebar-open');
-    }
-  }
-
-  navItems.forEach((item) => {
-    item.addEventListener('click', () => {
-      setActiveView(item.dataset.target);
-    });
-  });
-
-  if (sidebarToggle) {
-    sidebarToggle.addEventListener('click', () => {
       document.body.classList.toggle('sidebar-open');
-    });
+    }
   }
 
   if (newOrderButton) {
@@ -278,6 +255,28 @@ function wireSidebarNavigation() {
       if (window.innerWidth <= 840) {
         document.body.classList.remove('sidebar-open');
       }
+    });
+  }
+
+  // Attach click handlers to navigation items so views can change
+  navItems.forEach((nav) => {
+    nav.addEventListener('click', (e) => {
+      e.preventDefault();
+      const target = nav.dataset.target;
+      if (target) {
+        setActiveView(target);
+        if (window.innerWidth <= 840) {
+          document.body.classList.remove('sidebar-open');
+        }
+      }
+    });
+  });
+
+  // Sidebar toggle (mobile / compact)
+  if (sidebarToggle) {
+    sidebarToggle.addEventListener('click', (e) => {
+      e.preventDefault();
+      document.body.classList.toggle('sidebar-open');
     });
   }
 
@@ -705,6 +704,8 @@ function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancela
   footerEl.innerHTML = '';
 
   content.classList.toggle('wide', isWide);
+  content.classList.toggle('order-modal-shell', String(body || '').includes('id="orderForm"'));
+  content.classList.toggle('client-profile-shell', String(body || '').includes('id="clientProfileModal"'));
 
   if (cancelText) {
     const btnCancel = document.createElement('button');
@@ -762,6 +763,201 @@ function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancela
   overlay.classList.add('active');
 }
 
+// ======= Plantillas locales (localStorage) =======
+const TEMPLATES_KEY = 'sisped_order_templates_v1';
+
+function loadLocalTemplates() {
+  try {
+    const raw = localStorage.getItem(TEMPLATES_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Error leyendo plantillas desde localStorage', e);
+    return [];
+  }
+}
+
+function saveLocalTemplates(templates) {
+  try {
+    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates || []));
+  } catch (e) {
+    console.error('Error guardando plantillas en localStorage', e);
+  }
+}
+
+function showTemplatesModal(form) {
+  const templates = loadLocalTemplates();
+
+  const body = `
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <form id="templateCreateForm" style="display:flex;gap:8px;align-items:center;">
+        <input id="templateNameInput" placeholder="Nombre de la plantilla" style="flex:1;padding:8px;border:1px solid var(--panel-border);border-radius:8px;" />
+        <button type="submit" class="primary">Guardar</button>
+      </form>
+      <div id="templatesList" style="display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto;padding-right:6px;"></div>
+    </div>
+  `;
+
+  showModal({ title: '📚 Plantillas (local)', body, cancelText: 'Cerrar', confirmText: null, isWide: false });
+
+  // Attach handlers after modal content is rendered
+  setTimeout(() => {
+    const listEl = document.getElementById('templatesList');
+    const formEl = document.getElementById('templateCreateForm');
+    const nameInput = document.getElementById('templateNameInput');
+
+    async function renderList() {
+      let tpls = [];
+      try {
+        const serverTpls = await request('/api/templates');
+        if (Array.isArray(serverTpls) && serverTpls.length) {
+          tpls = serverTpls.map(s => ({ ...s, items: (typeof s.items === 'string' ? JSON.parse(s.items || '[]') : s.items) }));
+        }
+      } catch (e) {
+        // No hay servidor o error -> usar localStorage
+        tpls = loadLocalTemplates();
+      }
+
+      listEl.innerHTML = '';
+      if (!tpls.length) {
+        listEl.innerHTML = '<div style="color:var(--muted);">No hay plantillas guardadas.</div>';
+        return;
+      }
+
+      tpls.forEach(t => {
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.justifyContent = 'space-between';
+        row.style.alignItems = 'center';
+        row.style.padding = '8px';
+        row.style.border = '1px solid var(--panel-border)';
+        row.style.borderRadius = '8px';
+
+        const left = document.createElement('div');
+        left.innerHTML = `<strong>${escapeHtml(t.name)}</strong><div style="font-size:12px;color:var(--muted);margin-top:4px;">${(t.items||[]).map(i=>escapeHtml(i.name)+ ' x'+(i.quantity||1)).join(', ')}</div>`;
+        left.style.flex = '1';
+
+        const actions = document.createElement('div');
+        actions.style.display = 'flex';
+        actions.style.gap = '8px';
+
+        const applyBtn = document.createElement('button');
+        applyBtn.className = 'btn-secondary';
+        applyBtn.textContent = 'Aplicar';
+        applyBtn.onclick = () => {
+          // Aplicar plantilla al formulario actual
+          pendingItems.length = 0;
+          (t.items || []).forEach(it => {
+            pendingItems.push({
+              productId: Number(it.productId || it.product_id),
+              quantity: Number(it.quantity) || 1,
+              name: it.name || 'Producto',
+              unitPrice: Number(it.unitPrice || it.unit_price) || 0
+            });
+          });
+
+          // Restaurar info de pago si viene
+          if (form) {
+            const paymentTypeField = form.querySelector('[name="paymentType"]');
+            const paymentAmountField = form.querySelector('#paymentAmountInput');
+            if (paymentTypeField && t.paymentType) paymentTypeField.value = t.paymentType;
+            if (paymentAmountField && typeof t.paymentAmount !== 'undefined') paymentAmountField.value = Number(t.paymentAmount || 0);
+          }
+
+          renderPendingItemsInModal();
+          // Cerrar modal
+          document.getElementById('modalOverlay').classList.remove('active');
+          showToast(`Plantilla "${t.name}" aplicada`, 'success');
+        };
+
+        const delBtn = document.createElement('button');
+        delBtn.className = 'btn-secondary';
+        delBtn.textContent = 'Borrar';
+        delBtn.onclick = async () => {
+          const confirmed = confirm(`Borrar plantilla "${t.name}"?`);
+          if (!confirmed) return;
+          // Intentar borrar en servidor, si falla borrar local
+          try {
+            if (t.id && String(t.id).length) {
+              await request(`/api/templates/${encodeURIComponent(t.id)}`, { method: 'DELETE' });
+            }
+          } catch (e) {
+            // ignore server error
+          }
+
+          const remaining = loadLocalTemplates().filter(x => x.id !== t.id);
+          saveLocalTemplates(remaining);
+          await renderList();
+          showToast(`Plantilla "${t.name}" borrada`, 'info');
+        };
+
+        actions.appendChild(applyBtn);
+        actions.appendChild(delBtn);
+
+        row.appendChild(left);
+        row.appendChild(actions);
+        listEl.appendChild(row);
+      });
+    }
+
+    formEl.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const name = (nameInput.value || '').trim();
+      if (!name) {
+        showToast('Ingresa un nombre para la plantilla', 'warning');
+        return;
+      }
+
+      if (!pendingItems.length) {
+        showToast('No hay items en la comanda para guardar como plantilla', 'warning');
+        return;
+      }
+
+      const newTpl = {
+        id: Date.now(),
+        name,
+        items: pendingItems.map(p => ({ productId: p.productId, quantity: p.quantity, name: p.name, unitPrice: p.unitPrice })),
+        paymentType: (() => { try { return form.querySelector('[name="paymentType"]').value; } catch (e) { return null; } })(),
+        paymentAmount: (() => { try { return Number(form.querySelector('#paymentAmountInput').value) || 0; } catch (e) { return null; } })()
+      };
+      // Intentar guardar en servidor; si falla, guardar localmente
+      let saved = false;
+      try {
+        const serverResp = await request('/api/templates', { method: 'POST', body: JSON.stringify({ name: newTpl.name, items: newTpl.items, paymentType: newTpl.paymentType, paymentAmount: newTpl.paymentAmount }) });
+        if (serverResp && serverResp.id) {
+          // servidor devolvió la plantilla persistida
+          const currentLocal = loadLocalTemplates();
+          // mantener copia local con id del servidor
+          currentLocal.unshift({ ...newTpl, id: serverResp.id });
+          saveLocalTemplates(currentLocal);
+          saved = true;
+        }
+      } catch (e) {
+        // guardar local como fallback
+      }
+
+      if (!saved) {
+        const current = loadLocalTemplates();
+        current.unshift(newTpl);
+        saveLocalTemplates(current);
+      }
+
+      nameInput.value = '';
+      await renderList();
+      showToast(`Plantilla "${newTpl.name}" guardada`, 'success');
+    });
+
+    renderList();
+  }, 30);
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/[&<>"']/g, function(m) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); });
+}
+
+// ==============================================
+
 function closeModals() {
   document.getElementById('modalOverlay').classList.remove('active');
   // Limpiar campos si es necesario
@@ -794,15 +990,6 @@ function openOrderModal(order = null) {
     const modalBody = document.querySelector('.modal-body');
     if (typeof attachOrderFormEvents === 'function') attachOrderFormEvents(modalBody, order);
     if (typeof renderPendingItemsInModal === 'function') renderPendingItemsInModal();
-
-    const clearBtn = modalBody.querySelector('#clearOrderForm');
-    if (clearBtn) clearBtn.addEventListener('click', () => {
-      const form = modalBody.querySelector('#orderForm');
-      if (!form) return;
-      form.reset();
-      pendingItems.length = 0;
-      renderPendingItemsInModal();
-    });
   });
 }
 
@@ -833,24 +1020,55 @@ async function renderClientHistory(clientId, container) {
       return;
     }
 
-    container.innerHTML = orders.map(o => `
-      <div class="row" style="margin-bottom: 8px;">
-        <div style="display:flex; justify-content:space-between;">
-          <strong>Pedido #${o.id}</strong>
-          <span class="meta">${formatBogotaDate(o.created_at)}</span>
-        </div>
-        <div class="meta">${o.status.toUpperCase()} · ${money(o.total)}</div>
-        <div class="subtle" style="font-size: 0.75rem;">
-          ${(o.items || []).map(i => `${i.name_snapshot} x${i.quantity}`).join(', ')}
-        </div>
-      </div>
-    `).join('');
+    container.innerHTML = generateClientOrderHistory(orders);
   } catch (e) {
     console.error('Error al cargar historial del cliente:', e);
     container.innerHTML = `
       <div class="error" style="color: var(--danger); font-size: 0.85rem;">
         Error al cargar historial: ${e.message}
       </div>`;
+  }
+}
+
+async function renderClientInsights(clientId, container, client = null) {
+  if (!container) return;
+  container.innerHTML = '<div class="subtle">Analizando cliente...</div>';
+
+  try {
+    const orders = await request(`/api/clients/${clientId}/orders`);
+    const loyalty = calculateClientLoyalty(client || { created_at: new Date().toISOString() }, orders);
+    const preferences = analyzeClientPreferences(orders);
+
+    container.innerHTML = `
+      <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px;">
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 12px; padding: 12px;">
+          <div class="subtle" style="font-size: 10px; text-transform: uppercase;">Fidelidad</div>
+          <div style="font-size: 22px; font-weight: 800; color: var(--accent); margin-top: 4px;">${loyalty.loyaltyScore}</div>
+          <div class="subtle" style="font-size: 11px; margin-top: 4px;">${loyalty.segment} · ${loyalty.ordersCount} pedidos</div>
+        </div>
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--panel-border); border-radius: 12px; padding: 12px;">
+          <div class="subtle" style="font-size: 10px; text-transform: uppercase;">Valor</div>
+          <div style="font-size: 22px; font-weight: 800; color: var(--text-primary); margin-top: 4px;">${money(loyalty.totalSpent)}</div>
+          <div class="subtle" style="font-size: 11px; margin-top: 4px;">${loyalty.monthsActive} meses activo(s)</div>
+        </div>
+      </div>
+      <div style="margin-top: 10px; display:flex; flex-direction:column; gap: 8px;">
+        <div style="display:flex; justify-content:space-between; gap: 12px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--panel-border); border-radius: 12px;">
+          <span class="subtle">Producto favorito</span>
+          <strong>${preferences.favoriteProduct ? `${escapeHtml(preferences.favoriteProduct.name)} x${preferences.favoriteProduct.quantity}` : 'Sin datos'}</strong>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap: 12px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--panel-border); border-radius: 12px;">
+          <span class="subtle">Zona favorita</span>
+          <strong>${preferences.favoriteZone ? `${escapeHtml(preferences.favoriteZone.name)} (${preferences.favoriteZone.visits})` : 'Sin datos'}</strong>
+        </div>
+        <div style="display:flex; justify-content:space-between; gap: 12px; padding: 10px 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--panel-border); border-radius: 12px;">
+          <span class="subtle">Tasa de repetición</span>
+          <strong>${preferences.repeatRate}%</strong>
+        </div>
+      </div>
+    `;
+  } catch (error) {
+    container.innerHTML = `<div class="error" style="color: var(--danger); font-size: 0.85rem;">Error al analizar cliente: ${error.message}</div>`;
   }
 }
 
@@ -944,80 +1162,122 @@ async function renderClients() {
 }
 
 async function showClientDetail(client) {
-  const body = document.getElementById('clientDetailBody');
-  const actions = document.getElementById('clientDetailActions');
-  if (!body) return;
-
   // Cargar direcciones adicionales del cliente
   let addresses = [];
   try {
     addresses = await request(`/api/clients/${client.id}/addresses`);
   } catch (e) { console.error(e); }
 
-  body.innerHTML = `
-    <div style="text-align:center; margin-bottom:10px;">
-      <div style="width:64px; height:64px; background:rgba(245,158,11,0.1); color:var(--accent); border-radius:50%; display:flex; align-items:center; justify-content:center; margin:0 auto 12px; font-size:24px; font-weight:800;">
-        ${client.name.charAt(0)}
-      </div>
-      <h4 style="font-size:18px; margin:0;">${escapeHtml(client.name)}</h4>
-      <div class="subtle">${escapeHtml(client.phone)}</div>
-    </div>
-    
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-        <div style="font-size:11px; text-transform:uppercase; color:var(--muted); font-weight:700;">Direcciones Guardadas</div>
-        <button id="addAddressBtn" style="background:none; border:none; color:var(--accent); cursor:pointer; font-size:11px; font-weight:700; display:flex; align-items:center; gap:4px;">
-          <span class="material-symbols-rounded" style="font-size:16px;">add_location</span> Agregar
-        </button>
-      </div>
-      ${addresses.map(addr => `
-        <div class="address-card" style="background:rgba(255,255,255,0.03); padding:12px; border-radius:12px; border:1px solid ${addr.is_primary ? 'rgba(245,158,11,0.4)' : 'var(--panel-border)'};">
-          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
-            <span style="font-size:10px; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;">
-              ${escapeHtml(addr.label)} ${addr.is_primary ? '<span style="color:var(--accent); margin-left:4px;">★ Principal</span>' : ''}
-            </span>
-            <div style="display:flex; gap:8px;">
-              ${addr.source !== 'order' ? `
-                <button class="address-action-btn" data-action="edit" data-id="${addr.id}" title="Editar" style="background:none; border:none; color:var(--muted); cursor:pointer; padding:0;">
-                  <span class="material-symbols-rounded" style="font-size:16px;">edit</span>
-                </button>
-                ${!addr.is_primary ? `
-                  <button class="address-action-btn" data-action="delete" data-id="${addr.id}" title="Eliminar" style="background:none; border:none; color:var(--danger); cursor:pointer; padding:0;">
-                    <span class="material-symbols-rounded" style="font-size:16px;">delete</span>
-                  </button>
-                ` : ''}
-              ` : `<span class="subtle" style="font-size:11px;">Desde pedido</span>`}
+  const isArchived = Number(client.archived) === 1;
+  const addressCards = addresses.length
+    ? addresses.map((addr) => `
+      <article class="client-address-card ${addr.is_primary ? 'is-primary' : ''}">
+        <div class="client-address-card-head">
+          <div>
+            <div class="client-chip-row">
+              <span class="client-card-chip">${escapeHtml(addr.label || 'Dirección')}</span>
+              ${addr.is_primary ? '<span class="client-card-chip accent">Principal</span>' : ''}
             </div>
+            <div class="client-address-text">${escapeHtml(addr.address)}</div>
+            <div class="client-address-subtext">${escapeHtml(addr.barrio || '')}</div>
+            ${addr.reference ? `<div class="client-address-reference">"${escapeHtml(addr.reference)}"</div>` : ''}
           </div>
-          <div style="font-size:13px; font-weight:600; color:var(--text-primary);">${escapeHtml(addr.address)}</div>
-          <div class="subtle" style="font-size:12px; margin-top:2px;">${escapeHtml(addr.barrio)}</div>
-          ${addr.reference ? `<div class="subtle" style="font-size:11px; font-style:italic; margin-top:4px;">"${escapeHtml(addr.reference)}"</div>` : ''}
-          ${addr.source !== 'order' && !addr.is_primary ? `
-            <button class="address-action-btn" data-action="set-primary" data-id="${addr.id}" style="width:100%; margin-top:8px; background:rgba(255,255,255,0.05); border:1px solid var(--panel-border); border-radius:8px; padding:4px; font-size:10px; color:var(--muted); cursor:pointer;">Marcar como principal</button>
-          ` : ''}
+          <div class="client-address-actions">
+            <button type="button" class="icon-button client-address-action-btn" data-action="edit" data-id="${addr.id}" title="Editar"><span class="material-symbols-rounded">edit</span></button>
+            ${addr.source !== 'order' ? `<button type="button" class="icon-button client-address-action-btn danger" data-action="delete" data-id="${addr.id}" title="Eliminar"><span class="material-symbols-rounded">delete</span></button>` : ''}
+          </div>
         </div>
-      `).join('')}
-    </div>
+        ${addr.source !== 'order' && !addr.is_primary ? `<button type="button" class="client-secondary-action client-address-action-btn" data-action="set-primary" data-id="${addr.id}">Marcar como principal</button>` : ''}
+      </article>
+    `).join('')
+    : '<div class="subtle">No hay direcciones guardadas.</div>';
 
-    <div style="margin-top:10px;">
-      <div style="font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:8px;">Notas Internas</div>
-      <div style="font-size:12px; font-style:italic; color:var(--text-secondary);">${escapeHtml(client.notes || 'Sin notas registradas')}</div>
-    </div>
+  const recentOrders = (client.recentOrders || client.recent_orders || []).slice ? (client.recentOrders || client.recent_orders || []) : [];
 
-    <div id="clientSidebarHistory" style="margin-top:10px;">
-      <div style="font-size:11px; text-transform:uppercase; color:var(--muted); margin-bottom:8px;">Historial Reciente</div>
-      <div class="mini-list" id="clientHistoryList">Cargando...</div>
+  const body = `
+    <div id="clientProfileModal" class="client-profile-modal">
+      <section class="client-profile-hero">
+        <div class="client-profile-avatar">${escapeHtml((client.name || '?').charAt(0))}</div>
+        <div class="client-profile-copy">
+          <div class="client-profile-name-row">
+            <h3>${escapeHtml(client.name)}</h3>
+            ${isArchived ? '<span class="client-card-chip danger">Archivado</span>' : ''}
+          </div>
+          <div class="client-profile-phone">${escapeHtml(client.phone || '')}</div>
+          <div class="client-profile-meta">${escapeHtml(client.primaryAddress?.address || 'Sin dirección principal')} · ${escapeHtml(client.primaryAddress?.barrio || 'Sin barrio')}</div>
+        </div>
+        <div class="client-profile-actions">
+          <button type="button" class="primary" id="editClientDetailBtn"><span class="material-symbols-rounded">edit</span> Editar información</button>
+          <button type="button" class="btn-danger" id="deleteClientDetailBtn"><span class="material-symbols-rounded">delete</span> Eliminar cliente</button>
+        </div>
+      </section>
+
+      <section class="client-profile-grid">
+        <article class="client-profile-panel">
+          <div class="client-panel-head">
+            <h4>Direcciones guardadas</h4>
+            <button type="button" class="client-panel-link" id="addAddressBtn"><span class="material-symbols-rounded">add_location</span> Agregar</button>
+          </div>
+          <div class="client-address-list">${addressCards}</div>
+        </article>
+
+        <article class="client-profile-panel">
+          <div class="client-panel-head"><h4>Notas internas</h4></div>
+          <div class="client-notes">${escapeHtml(client.notes || 'Sin notas registradas')}</div>
+
+          <div class="client-panel-spacer"></div>
+
+          <div class="client-panel-head"><h4>Fidelidad y preferencias</h4></div>
+          <div class="mini-list client-profile-mini-list" id="clientInsightsList">Cargando...</div>
+        </article>
+      </section>
+
+      <section class="client-profile-panel">
+        <div class="client-panel-head"><h4>Historial reciente</h4></div>
+        <div class="mini-list client-profile-mini-list" id="clientHistoryList">Cargando...</div>
+      </section>
     </div>
   `;
 
-  if (actions) actions.style.display = 'block';
-  renderClientHistory(client.id, document.getElementById('clientHistoryList'));
+  showModal({
+    title: 'Perfil del Cliente',
+    body,
+    confirmText: null,
+    cancelText: 'Cerrar',
+    isWide: true
+  });
 
-  // Asignar eventos a las acciones de direcciones
-  const addBtn = body.querySelector('#addAddressBtn');
+  const modalBody = document.querySelector('.modal-body');
+  const editBtn = modalBody.querySelector('#editClientDetailBtn');
+  const deleteBtn = modalBody.querySelector('#deleteClientDetailBtn');
+  const addBtn = modalBody.querySelector('#addAddressBtn');
+
+  if (editBtn) editBtn.onclick = () => openClientModal(client);
+
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      showModal({
+        title: '¿Eliminar cliente?',
+        body: `¿Seguro que deseas eliminar a <strong>${escapeHtml(client.name)}</strong>? Esta acción no se puede deshacer.`,
+        confirmText: 'Sí, eliminar',
+        cancelText: 'Cancelar',
+        onConfirm: async () => {
+          try {
+            await deleteClient(client.id);
+            clientsTableState.selectedId = null;
+            showToast('Cliente eliminado', 'success');
+            await refreshDashboard();
+          } catch (error) {
+            showToast(error.message, 'error');
+          }
+        }
+      });
+    };
+  }
+
   if (addBtn) addBtn.onclick = () => openAddressModal(client.id);
 
-  body.querySelectorAll('.address-action-btn').forEach(btn => {
+  modalBody.querySelectorAll('.client-address-action-btn').forEach(btn => {
     btn.onclick = async () => {
       const action = btn.dataset.action;
       const addrId = btn.dataset.id;
@@ -1043,6 +1303,9 @@ async function showClientDetail(client) {
       }
     };
   });
+
+  renderClientInsights(client.id, modalBody.querySelector('#clientInsightsList'), client);
+  renderClientHistory(client.id, modalBody.querySelector('#clientHistoryList'));
 }
 
 function openAddressModal(clientId, address = null) {
@@ -1974,6 +2237,7 @@ async function refreshDashboard() {
 
   renderProducts(products);
   renderDrivers(drivers);
+  renderClients();
 
   // Renderizado centralizado: renderOrders ya utiliza el estado de búsqueda y filtros
   renderOrders(dashboardState.orders);
@@ -2735,6 +2999,209 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function validateAddressFormat(addressData = {}) {
+  const address = String(addressData.address || '').trim();
+  const barrio = String(addressData.barrio || '').trim();
+  const label = String(addressData.label || '').trim();
+  const errors = [];
+
+  if (!address) errors.push('La dirección es obligatoria');
+  if (!barrio) errors.push('El barrio es obligatorio');
+  if (label && label.length > 60) errors.push('La etiqueta de dirección es demasiado larga');
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    errorMessage: errors.join(' | ')
+  };
+}
+
+async function geocodeClientAddress(formOrData) {
+  const form = formOrData?.querySelector ? formOrData : null;
+  if (!form) return null;
+  return resolveOrderLocation(form);
+}
+
+function attachClientAddressAutoGeocoding(container) {
+  const form = container?.querySelector ? container.querySelector('#clientForm') : null;
+  if (!form) return;
+
+  const addressInput = form.querySelector('[name="address"]');
+  const geocodingField = form.querySelector('[name="geocodingSource"]');
+  if (!addressInput) return;
+
+  let debounceTimer = null;
+  const runGeocoding = async () => {
+    const address = String(addressInput.value || '').trim();
+    if (address.length < 6) return;
+
+    try {
+      const resolved = await geocodeClientAddress(form);
+      if (resolved && geocodingField) geocodingField.value = resolved.source;
+    } catch (error) {
+      console.warn('Autogeocoding client address failed:', error);
+    }
+  };
+
+  addressInput.addEventListener('blur', runGeocoding);
+  addressInput.addEventListener('input', () => {
+    window.clearTimeout(debounceTimer);
+    debounceTimer = window.setTimeout(runGeocoding, 900);
+  });
+}
+
+function calculateClientLoyalty(client, orders = []) {
+  const completedOrders = orders.filter((order) => String(order.status || '').toLowerCase() === 'entregado');
+  const totalSpent = completedOrders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+  const monthsActive = Math.max(1, (Date.now() - new Date(client.created_at || Date.now()).getTime()) / (1000 * 60 * 60 * 24 * 30));
+  const frequencyScore = Math.min(completedOrders.length * 12, 50);
+  const spendScore = Math.min(totalSpent / 10000, 30);
+  const tenureScore = Math.min(monthsActive * 2, 20);
+  const loyaltyScore = Math.min(Math.round(frequencyScore + spendScore + tenureScore), 100);
+
+  return {
+    loyaltyScore,
+    ordersCount: completedOrders.length,
+    totalSpent,
+    monthsActive: Number(monthsActive.toFixed(1)),
+    segment: loyaltyScore >= 80 ? 'VIP' : loyaltyScore >= 50 ? 'Leal' : loyaltyScore >= 25 ? 'Frecuente' : 'Nuevo'
+  };
+}
+
+function generateClientOrderHistory(orders = []) {
+  if (!Array.isArray(orders) || !orders.length) {
+    return '<div class="subtle">Sin pedidos registrados.</div>';
+  }
+
+  return orders.map((order) => `
+    <article class="client-history-card timeline-item" data-status="${String(order.status || '').toLowerCase()}">
+      <div class="timeline-icon client-history-icon">
+        <span class="material-symbols-rounded">receipt_long</span>
+      </div>
+      <div class="timeline-body client-history-body">
+        <div class="client-history-head">
+          <h4>Pedido #${order.id}</h4>
+          <span class="client-history-date">${formatBogotaDateTime(order.created_at)}</span>
+        </div>
+        <div class="timeline-meta client-history-meta">${escapeHtml(order.barrio || 'Sin barrio')} · ${escapeHtml(order.address || 'Sin dirección')}</div>
+        <div class="tag-row client-history-tags" style="margin-top:8px;">
+          <span class="tag">${money(order.total)}</span>
+          <span class="tag ${getOrderStatusClass(order.status)}">${escapeHtml(order.status || '')}</span>
+        </div>
+      </div>
+      <div class="client-history-amount">${money(order.total)}</div>
+    </article>
+  `).join('');
+}
+
+function analyzeClientPreferences(orders = []) {
+  const productCounts = new Map();
+  const barrioCounts = new Map();
+
+  orders.forEach((order) => {
+    const barrio = String(order.barrio || '').trim();
+    if (barrio) barrioCounts.set(barrio, (barrioCounts.get(barrio) || 0) + 1);
+
+    (order.items || []).forEach((item) => {
+      const key = String(item.name_snapshot || item.name || '').trim();
+      if (!key) return;
+      productCounts.set(key, (productCounts.get(key) || 0) + Number(item.quantity || 1));
+    });
+  });
+
+  const topProduct = Array.from(productCounts.entries()).sort((a, b) => b[1] - a[1])[0] || null;
+  const topZone = Array.from(barrioCounts.entries()).sort((a, b) => b[1] - a[1])[0] || null;
+
+  return {
+    favoriteProduct: topProduct ? { name: topProduct[0], quantity: topProduct[1] } : null,
+    favoriteZone: topZone ? { name: topZone[0], visits: topZone[1] } : null,
+    totalOrders: orders.length,
+    repeatRate: orders.length >= 2 ? Math.round((orders.filter((order) => String(order.status || '').toLowerCase() === 'entregado').length / orders.length) * 100) : 0
+  };
+}
+
+async function createNewClient(clientData) {
+  const validation = validateAddressFormat(clientData);
+  if (!validation.isValid) throw new Error(validation.errorMessage);
+
+  return request('/api/clients/resolve', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: clientData.name,
+      phone: clientData.phone,
+      notes: clientData.notes || '',
+      address: clientData.address,
+      barrio: clientData.barrio,
+      reference: clientData.reference,
+      latitude: clientData.latitude,
+      longitude: clientData.longitude,
+      geocodingSource: clientData.geocodingSource,
+      setPrimaryAddress: true
+    })
+  });
+}
+
+async function updateClientProfile(clientId, clientData) {
+  const validation = validateAddressFormat(clientData);
+  if (!validation.isValid) throw new Error(validation.errorMessage);
+
+  return request(`/api/clients/${clientId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      name: clientData.name,
+      phone: clientData.phone,
+      notes: clientData.notes || ''
+    })
+  });
+}
+
+async function deleteClient(clientId) {
+  return request(`/api/clients/${clientId}`, { method: 'DELETE' });
+}
+
+async function mergeClientProfiles(targetClientId, sourceClientId) {
+  return request(`/api/clients/${targetClientId}/merge`, {
+    method: 'POST',
+    body: JSON.stringify({ sourceClientId })
+  });
+}
+
+async function archiveInactiveClients(clientId) {
+  return request(`/api/clients/${clientId}/archive`, { method: 'PATCH' });
+}
+
+async function restoreClient(clientId) {
+  return request(`/api/clients/${clientId}/restore`, { method: 'PATCH' });
+}
+
+async function addClientAddress(clientId, addressData) {
+  const validation = validateAddressFormat(addressData);
+  if (!validation.isValid) throw new Error(validation.errorMessage);
+
+  return request(`/api/clients/${clientId}/addresses`, {
+    method: 'POST',
+    body: JSON.stringify(addressData)
+  });
+}
+
+async function updateClientAddress(addressId, addressData) {
+  const validation = validateAddressFormat(addressData);
+  if (!validation.isValid) throw new Error(validation.errorMessage);
+
+  return request(`/api/addresses/${addressId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(addressData)
+  });
+}
+
+async function setPrimaryAddress(addressId) {
+  return request(`/api/addresses/${addressId}/primary`, { method: 'PATCH' });
+}
+
+async function deleteClientAddress(addressId) {
+  return request(`/api/addresses/${addressId}`, { method: 'DELETE' });
+}
+
 function parseComboItems(value) {
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean);
@@ -3052,11 +3519,13 @@ function openClientModal(client = null) {
     modalBody.querySelector('.tabs').style.display = 'none';
   }
   attachGeocoding(modalBody);
+  attachClientAddressAutoGeocoding(modalBody);
   const validateBtn = modalBody.querySelector('#validateClientAddressBtn');
   if (validateBtn) validateBtn.addEventListener('click', async () => {
     const form = document.getElementById('clientForm');
     const resolved = await resolveOrderLocation(form);
-    if (resolved) form.querySelector('[name="geocodingSource"]').value = resolved.source;
+    const geocodingField = form?.querySelector('[name="geocodingSource"]');
+    if (resolved && geocodingField) geocodingField.value = resolved.source;
   });
 
   form.addEventListener('submit', async (e) => {
@@ -3079,10 +3548,34 @@ function openClientModal(client = null) {
 
     const data = getFormData(form);
     try {
-      await request('/api/clients/resolve', { // Pass geocodingSource to server
-        method: 'POST',
-        body: JSON.stringify(data)
-      });
+      const payload = {
+        name: data.name,
+        phone: data.phone,
+        notes: data.notes,
+        address: data.address,
+        barrio: data.barrio,
+        reference: data.reference,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        geocodingSource,
+        setPrimaryAddress: true
+      };
+
+      if (client?.id) {
+        await updateClientProfile(client.id, payload);
+        if (payload.address) {
+          const addresses = await request(`/api/clients/${client.id}/addresses`);
+          const existingAddress = Array.isArray(addresses) ? addresses.find((address) => normalizeNeighborhood(address.address) === normalizeNeighborhood(payload.address) && normalizeNeighborhood(address.barrio) === normalizeNeighborhood(payload.barrio)) : null;
+          if (existingAddress) {
+            await updateClientAddress(existingAddress.id, payload);
+          } else {
+            await addClientAddress(client.id, payload);
+          }
+        }
+      } else {
+        await createNewClient(payload);
+      }
+
       showToast(client ? 'Cliente actualizado' : 'Cliente registrado con éxito', 'success');
       closeModals();
       await refreshDashboard();
@@ -3122,41 +3615,78 @@ async function handlePhoneBlur(event) {
   }
 }
 
-async function fillOrderClientData(client) {
-  const form = document.querySelector('#orderForm');
+function syncOrderClientAddress(form, address) {
+  if (!form || !address) return;
+
+  const setFieldValue = (selector, value) => {
+    const field = form.querySelector(selector);
+    if (field) field.value = value ?? '';
+  };
+
+  setFieldValue('[name="address"]', address.address);
+  setFieldValue('[name="barrio"]', address.barrio);
+  setFieldValue('[name="reference"]', address.reference || '');
+  setFieldValue('[name="latitude"]', address.latitude || '');
+  setFieldValue('[name="longitude"]', address.longitude || '');
+  setFieldValue('[name="geocodingSource"]', address.geocoding_source || address.geocodingSource || '');
+  setFieldValue('[name="selectedAddressId"]', address.id || '');
+
+  const addrInp = form.querySelector('[name="address"]');
+  const barrioInp = form.querySelector('[name="barrio"]');
+  const refInp = form.querySelector('[name="reference"]');
+  const autocompleteEl = form.__addressAutocompleteEl;
+  const innerInput = autocompleteEl?.shadowRoot?.querySelector('input');
+  if (addrInp) addrInp.value = address.address || '';
+  if (innerInput) innerInput.value = address.address || '';
+  if (barrioInp) barrioInp.value = address.barrio || '';
+  if (refInp) refInp.value = address.reference || '';
+}
+
+function renderOrderSavedAddresses(form, client) {
+  const wrap = form.querySelector('#orderSavedAddressWrap');
+  const select = form.querySelector('#orderSavedAddressSelect');
+  const selectedAddressField = form.querySelector('[name="selectedAddressId"]');
+  const addresses = Array.isArray(client?.addresses) ? client.addresses : [];
+
+  if (!wrap || !select || !selectedAddressField) return;
+
+  if (!addresses.length) {
+    wrap.style.display = 'none';
+    select.innerHTML = '';
+    selectedAddressField.value = '';
+    return;
+  }
+
+  wrap.style.display = 'block';
+  form.__selectedClientAddresses = addresses;
+  select.innerHTML = addresses.map((address) => `
+    <option value="${address.id}">${escapeHtml(address.label || 'Dirección')} · ${escapeHtml(address.address || '')} ${address.is_primary ? '(Principal)' : ''}</option>
+  `).join('');
+
+  const primaryAddress = addresses.find((address) => Number(address.is_primary) === 1) || addresses[0];
+  select.value = String(primaryAddress.id);
+  selectedAddressField.value = String(primaryAddress.id);
+  syncOrderClientAddress(form, primaryAddress);
+}
+
+async function fillOrderClientData(client, targetForm = document.querySelector('#orderForm')) {
+  const form = targetForm;
   if (!form) return;
 
   const setFieldValue = (selector, value) => {
     const field = form.querySelector(selector);
     if (field) field.value = value ?? '';
   };
-  
+
+  setFieldValue('[name="clientId"]', client.id || '');
   const nameInp = form.querySelector('[name="name"]');
   if (nameInp) nameInp.value = client.name;
 
   if (client.primaryAddress) {
-    setFieldValue('[name="address"]', client.primaryAddress.address);
-    setFieldValue('[name="barrio"]', client.primaryAddress.barrio);
-    setFieldValue('[name="reference"]', client.primaryAddress.reference);
-    const addrInp = form.querySelector('[name="address"]');
-    if (addrInp) addrInp.value = client.primaryAddress.address;
-
-    // Sincronizar con el componente visual de Google Places
-    const autocompleteEl = form.__addressAutocompleteEl;
-    const innerInput = autocompleteEl?.shadowRoot?.querySelector('input');
-    if (innerInput) innerInput.value = client.primaryAddress.address;
-
-    const barrioInp = form.querySelector('[name="barrio"]');
-    if (barrioInp) barrioInp.value = client.primaryAddress.barrio;
-
-    const refInp = form.querySelector('[name="reference"]');
-    if (refInp) refInp.value = client.primaryAddress.reference || '';
-
-    const latInp = form.querySelector('[name="latitude"]');
-    const lonInp = form.querySelector('[name="longitude"]');
-    if (latInp) latInp.value = client.primaryAddress.latitude || '';
-    if (lonInp) lonInp.value = client.primaryAddress.longitude || '';
+    syncOrderClientAddress(form, client.primaryAddress);
   }
+
+  renderOrderSavedAddresses(form, client);
   showToast(`Cliente ${client.name} vinculado`, 'info');
 }
 
@@ -3169,12 +3699,118 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
     attachGeocoding(form);
     const productSelect = form.querySelector('#orderProductSelect');
     const productSearch = form.querySelector('#orderProductSearch');
+    const nameInput = form.querySelector('[name="name"]');
+    const phoneInput = form.querySelector('[name="phone"]');
+    const clientIdField = form.querySelector('[name="clientId"]');
+    const selectedAddressField = form.querySelector('[name="selectedAddressId"]');
+    const clientLookupPanel = form.querySelector('#orderClientMatchPanel');
+    const clientLookupResults = form.querySelector('#orderClientMatchResults');
+    const savedAddressWrap = form.querySelector('#orderSavedAddressWrap');
+    const savedAddressSelect = form.querySelector('#orderSavedAddressSelect');
+    let clientLookupTimer = null;
+
     const setFieldValue = (selector, value) => {
       const field = form.querySelector(selector);
       if (field) field.value = value ?? '';
     };
 
+    const clearClientSelection = () => {
+      if (clientIdField) clientIdField.value = '';
+      if (selectedAddressField) selectedAddressField.value = '';
+      if (savedAddressWrap) savedAddressWrap.style.display = 'none';
+      if (savedAddressSelect) savedAddressSelect.innerHTML = '';
+      if (clientLookupPanel) clientLookupPanel.style.display = 'none';
+      if (clientLookupResults) clientLookupResults.innerHTML = '';
+    };
+
+    const renderClientSuggestions = (clients, query) => {
+      if (!clientLookupPanel || !clientLookupResults) return;
+      if (!Array.isArray(clients) || !clients.length) {
+        clientLookupPanel.style.display = 'none';
+        clientLookupResults.innerHTML = '';
+        return;
+      }
+
+      clientLookupPanel.style.display = 'block';
+      clientLookupResults.innerHTML = clients.slice(0, 5).map((client) => {
+        const primaryAddress = client.primaryAddress || client.addresses?.find((address) => Number(address.is_primary) === 1) || client.addresses?.[0] || null;
+        return `
+          <button type="button" data-order-client-id="${client.id}" style="text-align:left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-border); background: rgba(255,255,255,0.03); color: var(--text-primary); display: flex; flex-direction: column; gap: 4px;">
+            <div style="display:flex; justify-content:space-between; gap: 10px; align-items:center;">
+              <strong style="font-size: 13px;">${escapeHtml(client.name)}</strong>
+              <span class="subtle" style="font-size: 11px;">${escapeHtml(client.phone)}</span>
+            </div>
+            <div class="subtle" style="font-size: 11px;">${primaryAddress ? `${escapeHtml(primaryAddress.address || '')} · ${escapeHtml(primaryAddress.barrio || '')}` : 'Sin dirección principal'}</div>
+            <div class="subtle" style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;">${client.addressCount || client.addresses?.length || 0} dirección(es)</div>
+          </button>
+        `;
+      }).join('');
+
+      clientLookupResults.querySelectorAll('[data-order-client-id]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          const client = clients.find((item) => Number(item.id) === Number(button.dataset.orderClientId));
+          if (client) {
+            await fillOrderClientData(client, form);
+            clientLookupPanel.style.display = 'none';
+          }
+        });
+      });
+    };
+
+    const lookupClientMatches = async (query) => {
+      const term = String(query || '').trim();
+      if (term.length < 2) {
+        clientLookupPanel && (clientLookupPanel.style.display = 'none');
+        return;
+      }
+
+      try {
+        const clients = await request(`/api/clients?q=${encodeURIComponent(term)}`);
+        const matches = Array.isArray(clients) ? clients : [];
+        const normalizedTerm = term.toLowerCase();
+        const normalizedPhone = term.replace(/\D/g, '');
+        const exactMatch = matches.find((client) => normalizePhone(client.phone) === normalizedPhone) || matches.find((client) => String(client.name || '').trim().toLowerCase() === normalizedTerm);
+
+        if (exactMatch) {
+          await fillOrderClientData(exactMatch, form);
+          return;
+        }
+
+        renderClientSuggestions(matches, term);
+      } catch (error) {
+        console.warn('Error buscando clientes para la comanda:', error);
+      }
+    };
+
+    const handleClientFieldInput = (inputValue) => {
+      clearClientSelection();
+      window.clearTimeout(clientLookupTimer);
+      clientLookupTimer = window.setTimeout(() => lookupClientMatches(inputValue), 300);
+    };
+
+    if (nameInput) {
+      nameInput.addEventListener('input', (event) => handleClientFieldInput(event.target.value));
+      nameInput.addEventListener('blur', (event) => lookupClientMatches(event.target.value));
+    }
+
+    if (phoneInput) {
+      phoneInput.addEventListener('input', (event) => handleClientFieldInput(event.target.value));
+      phoneInput.addEventListener('blur', (event) => lookupClientMatches(event.target.value));
+    }
+
+    if (savedAddressSelect) {
+      savedAddressSelect.addEventListener('change', () => {
+        const addresses = form.__selectedClientAddresses || [];
+        const selectedAddress = addresses.find((address) => String(address.id) === String(savedAddressSelect.value));
+        if (selectedAddress) {
+          syncOrderClientAddress(form, selectedAddress);
+          if (selectedAddressField) selectedAddressField.value = String(selectedAddress.id);
+        }
+      });
+    }
+
     if (editingOrder) {
+      setFieldValue('[name="clientId"]', editingOrder.client_id || '');
       setFieldValue('[name="name"]', editingOrder.client_name);
       setFieldValue('[name="phone"]', editingOrder.client_phone);
       setFieldValue('[name="address"]', editingOrder.address);
@@ -3189,6 +3825,7 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
       setFieldValue('[name="urgencyLevel"]', editingOrder.urgency_level || 'low');
       setFieldValue('[name="deliveryBufferMinutes"]', editingOrder.delivery_buffer_minutes || 0);
       setFieldValue('[name="geocodingSource"]', editingOrder.geocoding_source || '');
+      setFieldValue('[name="selectedAddressId"]', editingOrder.selected_address_id || '');
     }
 
     const updateProductList = (query = '') => {
@@ -3218,12 +3855,118 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
       shippingInput.addEventListener('input', () => renderPendingItemsInModal());
     }
 
+    // Event listeners para tipo de pago y cambio
+    const paymentTypeSelect = form.querySelector('#paymentTypeSelect');
+    const paymentChangeFields = form.querySelector('#paymentChangeFields');
+    const paymentAmountInput = form.querySelector('#paymentAmountInput');
+    
+    if (paymentTypeSelect && paymentChangeFields) {
+      // Mostrar/ocultar campos de cambio según el tipo de pago
+      const togglePaymentFields = () => {
+        if (paymentTypeSelect.value === 'change') {
+          paymentChangeFields.style.display = 'flex';
+        } else {
+          paymentChangeFields.style.display = 'none';
+          if (paymentAmountInput) paymentAmountInput.value = '';
+        }
+      };
+      
+      paymentTypeSelect.addEventListener('change', togglePaymentFields);
+      togglePaymentFields(); // Inicializar
+    }
+    
+    // Recalcular cambio cuando se ingresa el monto pagado
+    if (paymentAmountInput) {
+      paymentAmountInput.addEventListener('input', () => renderPendingItemsInModal());
+    }
+
     // Evento para el botón de validar dirección en el formulario de comanda
     const validateBtn = form.querySelector('#validateOrderAddressBtn');
     if (validateBtn) validateBtn.addEventListener('click', async () => {
       const resolved = await resolveOrderLocation(form);
       if (resolved) form.querySelector('[name="geocodingSource"]').value = resolved.source;
     });
+
+    // ========== BOTONES DE UTILIDADES ==========
+    
+    // Botón: Duplicar última comanda
+    const duplicateBtn = form.querySelector('#duplicateLastOrderBtn');
+    if (duplicateBtn) {
+      duplicateBtn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const lastOrder = dashboardState.orders[dashboardState.orders.length - 1];
+        if (!lastOrder) {
+          showToast('No hay comandas anteriores para duplicar', 'warning');
+          return;
+        }
+        
+        // Rellenar datos del cliente
+        setFieldValue('[name="name"]', lastOrder.client_name);
+        setFieldValue('[name="phone"]', lastOrder.client_phone);
+        setFieldValue('[name="address"]', lastOrder.address);
+        setFieldValue('[name="barrio"]', lastOrder.barrio);
+        setFieldValue('[name="paymentMethod"]', lastOrder.payment_method);
+        
+        // Limpiar items y agregar los de la comanda anterior (copiar items, qty, precio)
+        pendingItems.length = 0;
+        if (Array.isArray(lastOrder.items) && lastOrder.items.length) {
+          lastOrder.items.forEach(it => {
+            const qty = Number(it.quantity) || 1;
+            const unitPrice = Number(it.unit_price ?? it.unitPrice ?? 0) || 0;
+            pendingItems.push({
+              productId: Number(it.product_id || it.productId),
+              quantity: qty,
+              name: it.name_snapshot || it.name || 'Producto',
+              unitPrice
+            });
+          });
+        }
+
+        // Restaurar información de pago si existe
+        const paymentTypeField = form.querySelector('[name="paymentType"]');
+        const paymentAmountField = form.querySelector('#paymentAmountInput');
+        if (paymentTypeField && lastOrder.payment_type) paymentTypeField.value = lastOrder.payment_type;
+        if (paymentAmountField && lastOrder.payment_amount) paymentAmountField.value = Number(lastOrder.payment_amount);
+
+        showToast(`✓ Comanda #${lastOrder.id} duplicada (items y pago cargados)`, 'success');
+        renderPendingItemsInModal();
+      });
+    }
+
+    // Botón: Crear desde plantilla
+    const templateBtn = form.querySelector('#createFromTemplateBtn');
+    if (templateBtn) {
+      templateBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        showTemplatesModal(form);
+      });
+    }
+
+    // Botón: Mostrar resumen
+    const summaryBtn = form.querySelector('#showOrderSummaryBtn');
+    if (summaryBtn) {
+      summaryBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (pendingItems.length === 0) {
+          showToast('Agrega al menos un producto para ver el resumen', 'warning');
+          return;
+        }
+        
+        const orderData = {
+          items: pendingItems,
+          shipping: Number(form.querySelector('#orderShippingInput')?.value || 3000)
+        };
+        
+        const summary = generateOrderSummary(orderData);
+        
+        showModal({
+          title: '📋 Resumen de Comanda',
+          body: summary,
+          cancelText: 'Cerrar'
+        });
+      });
+    }
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
 
@@ -3245,13 +3988,108 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
       syncOrderAddress(form);
 
       const data = getFormData(e.target);
+      const shippingVal = Number(form.querySelector('#orderShippingInput')?.value || 0) || 0;
+      const totals = calculateOrderTotal(pendingItems, shippingVal);
+
+      // Obtener datos de pago
+      const paymentTypeSelect = form.querySelector('#paymentTypeSelect');
+      const paymentAmountInput = form.querySelector('#paymentAmountInput');
+      const paymentType = paymentTypeSelect?.value || 'exact';
+      const paymentAmount = paymentType === 'change' ? (Number(paymentAmountInput?.value) || 0) : null;
+      const orderItems = pendingItems.map((item) => ({
+        productId: Number(item.productId),
+        quantity: Number(item.quantity) || 1,
+        name: item.name,
+        unitPrice: Number(item.unitPrice || 0)
+      }));
+
+      const orderData = {
+        clientId: data.clientId || '',
+        clientName: data.name,
+        clientPhone: data.phone,
+        address: data.address,
+        barrio: data.barrio,
+        reference: data.reference || '',
+        latitude: data.latitude,
+        longitude: data.longitude,
+        selectedAddressId: data.selectedAddressId || '',
+        items: orderItems,
+        paymentMethod: data.paymentMethod,
+        paymentType,
+        paymentAmount,
+        change: paymentAmount !== null ? Math.max(0, paymentAmount - totals.total) : null,
+        shipping: shippingVal,
+        notes: data.notes,
+        driverId: data.driverId || null,
+        urgencyLevel: data.urgencyLevel,
+        total: totals.total
+      };
+
+      const validation = validateOrderData(orderData);
+      if (!validation.isValid) {
+        form.classList.add('shake-form');
+        setTimeout(() => form.classList.remove('shake-form'), 500);
+        showToast(validation.errorMessage, 'error');
+        return;
+      }
+
+      const availability = validateProductAvailability(orderData.items);
+      if (!availability.allAvailable) {
+        form.classList.add('shake-form');
+        setTimeout(() => form.classList.remove('shake-form'), 500);
+        showToast('Algunos productos no están disponibles', 'error');
+        return;
+      }
+
+      const minimum = checkMinimumOrderAmount(orderData.total, 15000);
+      if (!minimum.meetsMinimum) {
+        form.classList.add('shake-form');
+        setTimeout(() => form.classList.remove('shake-form'), 500);
+        showToast(minimum.message, 'error');
+        return;
+      }
+      
       try {
-        const url = editingOrder ? `/api/orders/${editingOrder.id}` : '/api/orders';
-        const method = editingOrder ? 'PATCH' : 'POST';
-        const result = await request(url, { method, body: JSON.stringify({ client: { ...data }, paymentMethod: data.paymentMethod, driverId: data.driverId || null, items: pendingItems, notes: data.notes, geocodingSource, urgencyLevel: data.urgencyLevel, deliveryBufferMinutes: data.deliveryBufferMinutes }) });
-        showToast(editingOrder ? 'Comanda actualizada' : `Comanda creada`, 'success');
-        const savedOrderId = Number(result?.order?.id || result?.id || editingOrder?.id || null);
-        if (savedOrderId) ordersTableState.selectedId = savedOrderId;
+        if (editingOrder) {
+          const itemsUpdated = await updateOrderItems(editingOrder.id, orderData.items);
+          if (!itemsUpdated) return;
+
+          const result = await request(`/api/orders/${editingOrder.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({
+              client: {
+                clientId: orderData.clientId,
+                name: orderData.clientName,
+                phone: orderData.clientPhone,
+                address: orderData.address,
+                barrio: orderData.barrio,
+                reference: orderData.reference,
+                latitude: orderData.latitude,
+                longitude: orderData.longitude
+              },
+              paymentMethod: orderData.paymentMethod,
+              driverId: orderData.driverId,
+              notes: orderData.notes,
+              geocodingSource,
+              urgencyLevel: orderData.urgencyLevel,
+              deliveryBufferMinutes: Number(data.deliveryBufferMinutes || 0),
+              paymentType,
+              paymentAmount,
+              change: orderData.change,
+              shipping: orderData.shipping,
+              selectedAddressId: orderData.selectedAddressId
+            })
+          });
+
+          showToast('Comanda actualizada', 'success');
+          const savedOrderId = Number(result?.order?.id || result?.id || editingOrder?.id || null);
+          if (savedOrderId) ordersTableState.selectedId = savedOrderId;
+        } else {
+          const result = await createNewOrder(orderData);
+          const savedOrderId = Number(result?.order?.id || result?.id || null);
+          if (savedOrderId) ordersTableState.selectedId = savedOrderId;
+        }
+
         pendingItems.length = 0;
         closeModals();
         await refreshDashboard();
@@ -3300,7 +4138,31 @@ function renderPendingItemsInModal() {
     shippingVal = total > 0 ? 3000 : 0;
   }
   const shippingNode = modalRoot.querySelector('#detailShipping'); if (shippingNode) shippingNode.textContent = money(shippingVal);
-  const totalNode = modalRoot.querySelector('#detailTotal'); if (totalNode) totalNode.textContent = money(total + shippingVal);
+  const totalToPay = total + shippingVal;
+  const totalNode = modalRoot.querySelector('#detailTotal'); if (totalNode) totalNode.textContent = money(totalToPay);
+
+  // Calcular cambio si aplica
+  const paymentTypeSelect = modalRoot.querySelector('#paymentTypeSelect');
+  const paymentAmountInput = modalRoot.querySelector('#paymentAmountInput');
+  const changeAmountNode = modalRoot.querySelector('#changeAmount');
+  
+  if (paymentTypeSelect && paymentAmountInput && changeAmountNode) {
+    const paymentType = paymentTypeSelect.value;
+    if (paymentType === 'change') {
+      const paymentAmount = Number(paymentAmountInput.value) || 0;
+      const change = Math.max(0, paymentAmount - totalToPay);
+      changeAmountNode.textContent = money(change);
+      
+      // Cambiar color del cambio según sea positivo, negativo o cero
+      if (change > 0) {
+        changeAmountNode.style.color = '#22c55e'; // Verde
+      } else if (change < 0) {
+        changeAmountNode.style.color = '#ef4444'; // Rojo - falta dinero
+      } else {
+        changeAmountNode.style.color = '#94a3b8'; // Gris - pago exacto
+      }
+    }
+  }
 }
 
 async function renderDeliveryRoutesHistory() {
@@ -3401,6 +4263,407 @@ function viewHistoricalRoute(route) {
   
   showToast(`Visualizando Ruta #${route.id} en el mapa`, 'info');
 }
+
+// ============================================================================
+// FUNCIONES CRÍTICAS DE COMANDA (12 Core Functions)
+// ============================================================================
+
+/**
+ * 1. validateOrderData - Valida datos completos de comanda
+ * @param {Object} orderData - Datos de la comanda
+ * @returns {Object} { isValid: boolean, errors: string[] }
+ */
+function validateOrderData(orderData) {
+  const errors = [];
+  
+  // Validar cliente
+  if (!orderData.clientName?.trim()) errors.push('Nombre del cliente es requerido');
+  if (!orderData.clientPhone?.trim()) errors.push('Teléfono es requerido');
+  if (!/\d{7,10}/.test(orderData.clientPhone?.replace(/\D/g, ''))) {
+    errors.push('Teléfono debe tener mínimo 7 dígitos');
+  }
+  
+  // Validar dirección
+  if (!orderData.address?.trim()) errors.push('Dirección es requerida');
+  if (!orderData.barrio?.trim()) errors.push('Barrio es requerido');
+  
+  // Validar items
+  if (!Array.isArray(orderData.items) || orderData.items.length === 0) {
+    errors.push('Debe agregar al menos un producto');
+  }
+  
+  // Validar items individual
+  orderData.items?.forEach((item, idx) => {
+    if (!item.productId) errors.push(`Item ${idx + 1}: Producto no válido`);
+    if (item.quantity < 1) errors.push(`Item ${idx + 1}: Cantidad debe ser mínimo 1`);
+  });
+  
+  // Validar pago
+  if (orderData.paymentType === 'change') {
+    if (!orderData.paymentAmount) errors.push('Monto pagado es requerido para pago con cambio');
+    if (orderData.paymentAmount < orderData.total) {
+      errors.push('Monto pagado no puede ser menor al total');
+    }
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors,
+    errorMessage: errors.join(' | ')
+  };
+}
+
+/**
+ * 3. validateProductAvailability - Valida disponibilidad de productos
+ * @param {Array} items - Items de la comanda
+ * @returns {Object} { allAvailable: boolean, unavailable: Array, warnings: string[] }
+ */
+function validateProductAvailability(items) {
+  const unavailable = [];
+  const warnings = [];
+  
+  items.forEach((item, idx) => {
+    const product = dashboardState.products.find(p => p.id === item.productId);
+    
+    if (!product) {
+      unavailable.push({ itemIdx: idx, reason: 'Producto no encontrado' });
+    } else if (!product.active) {
+      unavailable.push({ itemIdx: idx, reason: 'Producto discontinuado' });
+    }
+    
+    // Validar stock si existe
+    if (product?.stock !== undefined && product.stock < item.quantity) {
+      warnings.push(`${product.name}: Stock bajo (${product.stock} disponibles)`);
+    }
+  });
+  
+  return {
+    allAvailable: unavailable.length === 0,
+    unavailable,
+    warnings,
+    isWarning: warnings.length > 0 && unavailable.length === 0
+  };
+}
+
+/**
+ * 4. calculateOrderTotal - Calcula total con impuestos y descuentos
+ * @param {Array} items - Items de comanda
+ * @param {number} shipping - Costo de domicilio
+ * @param {number} discount - Descuento en dinero
+ * @param {number} taxRate - Porcentaje de impuesto (0-1)
+ * @returns {Object} Desglose de cálculo
+ */
+function calculateOrderTotal(items = [], shipping = 0, discount = 0, taxRate = 0) {
+  const subtotal = items.reduce((sum, item) => {
+    const price = Number(item.unitPrice || item.unit_price || 0);
+    const qty = Number(item.quantity || 1);
+    return sum + (price * qty);
+  }, 0);
+  
+  const beforeTax = subtotal + shipping - discount;
+  const tax = beforeTax * taxRate;
+  const total = beforeTax + tax;
+  
+  return {
+    subtotal: Math.round(subtotal),
+    shipping: Math.round(shipping),
+    discount: Math.round(discount),
+    beforeTax: Math.round(beforeTax),
+    tax: Math.round(tax),
+    total: Math.round(total),
+    itemCount: items.length,
+    taxRate,
+    summary: `Subtotal: ${money(subtotal)} + Domicilio: ${money(shipping)} - Desc: ${money(discount)} = ${money(total)}`
+  };
+}
+
+/**
+ * 5. generateOrderSummary - Genera resumen visual de comanda
+ * @param {Object} order - Datos de la comanda
+ * @returns {string} HTML del resumen
+ */
+function generateOrderSummary(order) {
+  const total = calculateOrderTotal(order.items, order.shipping);
+  const itemsHtml = order.items.map(item => `
+    <div style="display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0;">
+      <span>${escapeHtml(item.name || 'Producto')} x${item.quantity}</span>
+      <strong>${money(item.quantity * (item.unitPrice || 0))}</strong>
+    </div>
+  `).join('');
+  
+  return `
+    <div style="background: rgba(255,255,255,0.05); padding: 12px; border-radius: 8px; font-size: 13px;">
+      <div style="font-weight: 700; margin-bottom: 8px;">📋 Resumen Comanda</div>
+      ${itemsHtml}
+      <div style="border-top: 1px solid rgba(255,255,255,0.1); margin-top: 8px; padding-top: 8px;">
+        <div style="display: flex; justify-content: space-between;">
+          <span>Subtotal:</span><strong>${money(total.subtotal)}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between;">
+          <span>Domicilio:</span><strong>${money(total.shipping)}</strong>
+        </div>
+        ${total.discount > 0 ? `
+          <div style="display: flex; justify-content: space-between; color: #22c55e;">
+            <span>Descuento:</span><strong>-${money(total.discount)}</strong>
+          </div>
+        ` : ''}
+        <div style="display: flex; justify-content: space-between; font-weight: 800; font-size: 14px; color: var(--accent); margin-top: 8px;">
+          <span>TOTAL:</span><strong>${money(total.total)}</strong>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 6. checkMinimumOrderAmount - Verifica monto mínimo de comanda
+ * @param {number} total - Total de la comanda
+ * @param {number} minimum - Monto mínimo permitido
+ * @returns {Object} { meetsMinimum: boolean, required: number, missing: number }
+ */
+function checkMinimumOrderAmount(total = 0, minimum = 15000) {
+  const meets = total >= minimum;
+  return {
+    meetsMinimum: meets,
+    required: minimum,
+    current: total,
+    missing: Math.max(0, minimum - total),
+    message: meets 
+      ? `✓ Cumple monto mínimo (${money(minimum)})`
+      : `Falta ${money(minimum - total)} para el monto mínimo`
+  };
+}
+
+/**
+ * 7. createNewOrder - Crea nueva comanda (frontend + API)
+ * @param {Object} orderData - Datos de la comanda
+ * @returns {Promise<Object>} Comanda creada
+ */
+async function createNewOrder(orderData) {
+  try {
+    // Validar
+    const validation = validateOrderData(orderData);
+    if (!validation.isValid) {
+      throw new Error(validation.errorMessage);
+    }
+    
+    // Verificar disponibilidad
+    const availability = validateProductAvailability(orderData.items);
+    if (!availability.allAvailable) {
+      throw new Error('Algunos productos no están disponibles');
+    }
+    
+    // Verificar monto mínimo
+    const minimum = checkMinimumOrderAmount(orderData.total, 15000);
+    if (!minimum.meetsMinimum) {
+      throw new Error(minimum.message);
+    }
+    
+    // Enviar al servidor
+    const result = await request('/api/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        client: {
+          clientId: orderData.clientId || null,
+          name: orderData.clientName,
+          phone: orderData.clientPhone,
+          address: orderData.address,
+          barrio: orderData.barrio,
+          reference: orderData.reference,
+          latitude: orderData.latitude,
+          longitude: orderData.longitude
+        },
+        items: orderData.items,
+        paymentMethod: orderData.paymentMethod,
+        paymentType: orderData.paymentType,
+        paymentAmount: orderData.paymentAmount,
+        change: orderData.change,
+        shipping: orderData.shipping,
+        notes: orderData.notes,
+        driverId: orderData.driverId || null,
+        urgencyLevel: orderData.urgencyLevel || 'low',
+        selectedAddressId: orderData.selectedAddressId || null
+      })
+    });
+    
+    showToast('✓ Comanda creada exitosamente', 'success');
+    return result;
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+    throw error;
+  }
+}
+
+/**
+ * 8. updateOrderItems - Actualiza items de una comanda
+ * @param {number} orderId - ID de la comanda
+ * @param {Array} newItems - Nuevos items
+ * @returns {Promise<boolean>} Éxito de la operación
+ */
+async function updateOrderItems(orderId, newItems) {
+  try {
+    const validation = validateProductAvailability(newItems);
+    if (!validation.allAvailable) {
+      throw new Error('Algunos productos no están disponibles');
+    }
+    
+    const result = await request(`/api/orders/${orderId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ items: newItems })
+    });
+    
+    showToast('Items actualizados', 'success');
+    return true;
+  } catch (error) {
+    showToast(`Error al actualizar: ${error.message}`, 'error');
+    return false;
+  }
+}
+
+/**
+ * 9. cancelOrder - Cancela comanda con motivo
+ * @param {number} orderId - ID de la comanda
+ * @param {string} reason - Motivo de cancelación
+ * @returns {Promise<boolean>}
+ */
+async function cancelOrder(orderId, reason = '') {
+  try {
+    if (!reason?.trim()) {
+      throw new Error('Debe proporcionar un motivo de cancelación');
+    }
+    
+    const confirmed = await new Promise(resolve => {
+      showModal({
+        title: '⚠️ Cancelar Comanda',
+        body: `
+          <p>¿Confirma cancelación de comanda #${orderId}?</p>
+          <p style="color: var(--muted); font-size: 12px;">Motivo: ${escapeHtml(reason)}</p>
+        `,
+        confirmText: 'Sí, Cancelar',
+        cancelText: 'No',
+        onConfirm: () => resolve(true),
+        onCancel: () => resolve(false)
+      });
+    });
+    
+    if (!confirmed) return false;
+    
+    await request(`/api/orders/${orderId}/cancel`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason })
+    });
+    
+    showToast('✓ Comanda cancelada', 'success');
+    await refreshDashboard();
+    return true;
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+    return false;
+  }
+}
+
+/**
+ * 10. pauseOrder - Pausa comanda temporalmente
+ * @param {number} orderId - ID de la comanda
+ * @param {string} reason - Motivo de pausa
+ * @returns {Promise<boolean>}
+ */
+async function pauseOrder(orderId, reason = '') {
+  try {
+    await request(`/api/orders/${orderId}/pause`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason })
+    });
+    
+    showToast('⏸ Comanda pausada', 'info');
+    await refreshDashboard();
+    return true;
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+    return false;
+  }
+}
+
+/**
+ * 11. duplicateOrder - Duplica comanda anterior
+ * @param {number} sourceOrderId - ID de comanda a duplicar
+ * @returns {Promise<Object>} Nueva comanda
+ */
+async function duplicateOrder(sourceOrderId) {
+  try {
+    const sourceOrder = dashboardState.orders.find(o => o.id === sourceOrderId);
+    if (!sourceOrder) {
+      throw new Error('Comanda original no encontrada');
+    }
+    
+    const items = Array.isArray(sourceOrder.items) ? sourceOrder.items.map((item) => ({
+      productId: Number(item.product_id || item.productId),
+      quantity: Number(item.quantity) || 1,
+      unitPrice: Number(item.unit_price ?? item.unitPrice ?? 0) || 0,
+      name: item.name_snapshot || item.name || 'Producto'
+    })) : [];
+    const shipping = Number(sourceOrder.shipping || 3000) || 3000;
+    const totals = calculateOrderTotal(items, shipping);
+    
+    // Crear nueva comanda con mismos datos
+    const newOrder = await createNewOrder({
+      clientName: sourceOrder.client_name,
+      clientPhone: sourceOrder.client_phone,
+      address: sourceOrder.address,
+      barrio: sourceOrder.barrio,
+      reference: sourceOrder.reference,
+      latitude: sourceOrder.latitude,
+      longitude: sourceOrder.longitude,
+      items,
+      paymentMethod: sourceOrder.payment_method,
+      shipping,
+      total: totals.total,
+      notes: `Duplicado de #${sourceOrderId}: ${sourceOrder.notes || ''}`
+    });
+    
+    showToast(`✓ Comanda #${sourceOrderId} duplicada`, 'success');
+    return newOrder;
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+    return null;
+  }
+}
+
+/**
+ * 12. createOrderFromTemplate - Crea comanda desde plantilla
+ * @param {Object} template - Plantilla de comanda
+ * @returns {Promise<Object>} Nueva comanda
+ */
+async function createOrderFromTemplate(template) {
+  try {
+    if (!template || !template.items) {
+      throw new Error('Plantilla inválida');
+    }
+    const shipping = Number(template.shipping || 3000) || 3000;
+    const totals = calculateOrderTotal(template.items, shipping);
+    
+    const newOrder = await createNewOrder({
+      clientName: template.clientName || '',
+      clientPhone: template.clientPhone || '',
+      address: template.address || '',
+      barrio: template.barrio || '',
+      reference: template.reference || '',
+      items: template.items,
+      paymentMethod: template.paymentMethod || 'Efectivo',
+      shipping,
+      total: totals.total,
+      notes: `De plantilla: ${template.name || 'Sin nombre'}`
+    });
+    
+    showToast(`✓ Comanda creada desde plantilla "${template.name}"`, 'success');
+    return newOrder;
+  } catch (error) {
+    showToast(`Error: ${error.message}`, 'error');
+    return null;
+  }
+}
+
+// ============================================================================
 
 function openOrderPanel() {
     const panel = document.getElementById('orderPanel');
