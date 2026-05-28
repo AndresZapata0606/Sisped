@@ -34,6 +34,181 @@ function getBogotaTimestamp(date = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}-05:00`;
 }
 
+function getBogotaDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+}
+
+function getBogotaDateRange(dateKey) {
+  const start = new Date(`${dateKey}T00:00:00-05:00`);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return {
+    start: start.toISOString().slice(0, 19).replace('T', ' '),
+    end: end.toISOString().slice(0, 19).replace('T', ' ')
+  };
+}
+
+function buildDailyClosureSnapshot(db, dayKey) {
+  const { start, end } = getBogotaDateRange(dayKey);
+  const dayOrders = db.prepare(`
+    SELECT
+      COUNT(*) AS total_orders,
+      SUM(CASE WHEN status = 'entregado' THEN 1 ELSE 0 END) AS delivered_orders,
+      SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END) AS cancelled_orders,
+      COALESCE(SUM(total), 0) AS total_sales,
+      COALESCE(AVG(total), 0) AS average_ticket
+    FROM orders
+    WHERE datetime(created_at) BETWEEN datetime(?) AND datetime(?)
+  `).get(start, end);
+
+  const topProduct = db.prepare(`
+    SELECT p.name, SUM(oi.quantity) AS qty
+    FROM order_items oi
+    INNER JOIN orders o ON o.id = oi.order_id
+    INNER JOIN products p ON p.id = oi.product_id
+    WHERE datetime(o.created_at) BETWEEN datetime(?) AND datetime(?)
+    GROUP BY p.id
+    ORDER BY qty DESC, p.name ASC
+    LIMIT 1
+  `).get(start, end);
+
+  const topDriver = db.prepare(`
+    SELECT d.name, COUNT(*) AS total_assigned
+    FROM orders o
+    INNER JOIN drivers d ON d.id = o.driver_id
+    WHERE o.driver_id IS NOT NULL AND datetime(o.created_at) BETWEEN datetime(?) AND datetime(?)
+    GROUP BY d.id
+    ORDER BY total_assigned DESC, d.name ASC
+    LIMIT 1
+  `).get(start, end);
+
+  return {
+    dayKey,
+    ordersArchived: 0,
+    totalOrders: dayOrders.total_orders || 0,
+    deliveredOrders: dayOrders.delivered_orders || 0,
+    cancelledOrders: dayOrders.cancelled_orders || 0,
+    totalSales: dayOrders.total_sales || 0,
+    averageTicket: dayOrders.average_ticket || 0,
+    averageDeliveryTimeMinutes: db.prepare(`
+      SELECT COALESCE(AVG(JULIANDAY(delivered_at) - JULIANDAY(picked_up_at)) * 24 * 60, 0) AS average_delivery_time_minutes
+      FROM orders
+      WHERE datetime(created_at) BETWEEN datetime(?) AND datetime(?)
+      AND picked_up_at IS NOT NULL AND delivered_at IS NOT NULL
+    `).get(start, end).average_delivery_time_minutes || 0,
+    topProduct: topProduct ? topProduct.name : 'Sin datos',
+    topDriver: topDriver ? topDriver.name : 'Sin datos'
+  };
+}
+
+function archiveAndResetDailyData(db, dayKey) {
+  const previousDay = new Date(`${dayKey}T00:00:00-05:00`);
+  previousDay.setDate(previousDay.getDate() - 1);
+  const previousDayKey = getBogotaDateKey(previousDay);
+
+  db.transaction(() => {
+    const existingClosure = db.prepare('SELECT day_key FROM daily_closures WHERE day_key = ?').get(previousDayKey);
+    if (!existingClosure) {
+      const snapshot = buildDailyClosureSnapshot(db, previousDayKey);
+      db.prepare(`
+        INSERT INTO daily_closures (
+          day_key, orders_archived, total_orders, delivered_orders, cancelled_orders,
+          total_sales, average_ticket, average_delivery_time_minutes, top_product, top_driver, snapshot_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        previousDayKey,
+        snapshot.ordersArchived,
+        snapshot.totalOrders,
+        snapshot.deliveredOrders,
+        snapshot.cancelledOrders,
+        snapshot.totalSales,
+        snapshot.averageTicket,
+        snapshot.averageDeliveryTimeMinutes,
+        snapshot.topProduct,
+        snapshot.topDriver,
+        JSON.stringify(snapshot)
+      );
+    }
+
+    const archivedResult = db.prepare(`
+      UPDATE orders
+      SET archived = 1, archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+      WHERE COALESCE(archived, 0) = 0 AND substr(created_at, 1, 10) < ?
+    `).run(dayKey);
+
+    db.prepare(`
+      DELETE FROM route_suggestions
+      WHERE substr(created_at, 1, 10) < ?
+    `).run(dayKey);
+
+    db.prepare(`
+      UPDATE delivery_routes
+      SET archived = 1,
+          archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
+          status = 'archived'
+      WHERE COALESCE(archived, 0) = 0 AND substr(assigned_at, 1, 10) < ?
+    `).run(dayKey);
+
+    db.prepare(`
+      UPDATE drivers
+      SET current_status = CASE WHEN active = 1 THEN 'disponible' ELSE 'inactivo' END,
+          updated_at = CURRENT_TIMESTAMP
+    `).run();
+
+    db.prepare(`
+      INSERT INTO app_meta (key, value, updated_at)
+      VALUES ('last_business_day', ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `).run(dayKey);
+
+    return archivedResult;
+  })();
+}
+
+function ensureDailyRollover(db) {
+  const todayKey = getBogotaDateKey();
+  const meta = db.prepare('SELECT value FROM app_meta WHERE key = ?').get('last_business_day');
+  const lastBusinessDay = meta?.value || null;
+
+  if (!lastBusinessDay) {
+    db.prepare(`
+      UPDATE orders
+      SET archived = 1, archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+      WHERE COALESCE(archived, 0) = 0 AND substr(created_at, 1, 10) < ?
+    `).run(todayKey);
+
+    db.prepare(`
+      DELETE FROM route_suggestions
+      WHERE substr(created_at, 1, 10) < ?
+    `).run(todayKey);
+
+    db.prepare(`
+      UPDATE delivery_routes
+      SET archived = 1,
+          archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
+          status = 'archived'
+      WHERE COALESCE(archived, 0) = 0 AND substr(assigned_at, 1, 10) < ?
+    `).run(todayKey);
+
+    db.prepare(`
+      INSERT INTO app_meta (key, value, updated_at)
+      VALUES ('last_business_day', ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
+    `).run(todayKey);
+    db.save();
+    return;
+  }
+
+  if (lastBusinessDay !== todayKey) {
+    archiveAndResetDailyData(db, todayKey);
+    db.save();
+  }
+}
+
 function getRangeBounds(range, cutoffHour = 0) { // Default to 0 for safety, will be passed from client
   const now = new Date();
   const end = new Date(now); // 'end' is always the current moment
@@ -361,6 +536,15 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
   app.use(express.static(path.join(__dirname, '..', 'renderer')));
+
+  app.use('/api', (_request, _response, next) => {
+    try {
+      ensureDailyRollover(db);
+    } catch (error) {
+      console.error('Error realizando rollover diario:', error);
+    }
+    next();
+  });
 
   app.get('/api/health', (_request, response) => {
     response.json({ ok: true, app: 'SISPED SW' });
@@ -960,6 +1144,7 @@ async function startServer() {
       FROM orders o
       INNER JOIN clients c ON c.id = o.client_id
       LEFT JOIN drivers d ON d.id = o.driver_id
+      WHERE COALESCE(o.archived, 0) = 0
       ORDER BY datetime(o.created_at) DESC
       LIMIT 100
     `).all();
@@ -1433,7 +1618,7 @@ async function startServer() {
         SELECT o.id, o.barrio, o.address, o.status, o.total, o.latitude, o.longitude, o.urgency_level, o.delivery_buffer_minutes, o.created_at, c.name AS client_name, o.geocoding_source
         FROM orders o
         INNER JOIN clients c ON c.id = o.client_id
-        WHERE o.status = 'listo para salir'
+        WHERE o.status = 'listo para salir' AND COALESCE(o.archived, 0) = 0
         ORDER BY datetime(o.created_at) ASC, o.id ASC
         LIMIT 100
       `).all();
@@ -1741,6 +1926,7 @@ app.get('/api/delivery-routes', (request, response) => {
         SELECT dr.id, dr.driver_id, dr.assigned_at, dr.status, dr.total_distance_km, dr.total_eta_minutes, dr.route_json, d.name AS driver_name
         FROM delivery_routes dr
         LEFT JOIN drivers d ON d.id = dr.driver_id
+        WHERE COALESCE(dr.archived, 0) = 0
         ORDER BY dr.assigned_at DESC
       `).all();
 
@@ -1761,6 +1947,34 @@ app.get('/api/delivery-routes', (request, response) => {
     response.status(500).json({ message: 'Error interno al cargar el historial de rutas.' });
   }
 });
+
+  app.get('/api/daily-closures', (_request, response) => {
+    try {
+      const closures = db.prepare(`
+        SELECT *
+        FROM daily_closures
+        ORDER BY day_key DESC
+        LIMIT 60
+      `).all();
+
+      response.json(closures.map((closure) => {
+        let snapshot = null;
+        try {
+          snapshot = JSON.parse(closure.snapshot_json || '{}');
+        } catch (error) {
+          snapshot = null;
+        }
+
+        return {
+          ...closure,
+          snapshot
+        };
+      }));
+    } catch (error) {
+      console.error('Error fetching daily closures:', error);
+      response.status(500).json({ message: 'Error interno al cargar los cierres diarios.' });
+    }
+  });
 
 // Manejador 404 específico para API (antes del comodín de HTML)
 app.use('/api', (request, response) => {

@@ -47,7 +47,12 @@ async function createSqlDatabase() {
   function runStatement(sql, params = []) {
     const statement = database.prepare(sql);
     statement.bind(params);
-    statement.step();
+    try {
+      statement.step();
+    } catch (err) {
+      statement.free();
+      throw err;
+    }
     const changes = database.getRowsModified();
     const lastIdRow = database.exec('SELECT last_insert_rowid() AS id;');
     statement.free();
@@ -208,6 +213,8 @@ async function createSqlDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id INTEGER, -- Referencia al primer pedido en la ruta, puede ser NULL si la ruta está vacía o no está ligada a un solo pedido
       driver_id INTEGER NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0,
+      archived_at TEXT,
       assigned_at TEXT DEFAULT CURRENT_TIMESTAMP,
       status TEXT DEFAULT 'completed', -- 'pending', 'active', 'completed', 'cancelled'
       total_distance_km REAL,
@@ -237,6 +244,27 @@ async function createSqlDatabase() {
       payment_type TEXT DEFAULT '',
       payment_amount REAL,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS daily_closures (
+      day_key TEXT PRIMARY KEY,
+      orders_archived INTEGER NOT NULL DEFAULT 0,
+      total_orders INTEGER NOT NULL DEFAULT 0,
+      delivered_orders INTEGER NOT NULL DEFAULT 0,
+      cancelled_orders INTEGER NOT NULL DEFAULT 0,
+      total_sales REAL NOT NULL DEFAULT 0,
+      average_ticket REAL NOT NULL DEFAULT 0,
+      average_delivery_time_minutes REAL NOT NULL DEFAULT 0,
+      top_product TEXT NOT NULL DEFAULT '',
+      top_driver TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
@@ -296,6 +324,14 @@ async function createSqlDatabase() {
     db.exec(`ALTER TABLE orders ADD COLUMN change REAL DEFAULT 0;`);
   } catch (e) { }
 
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE orders ADD COLUMN archived_at TEXT;`);
+  } catch (e) { }
+
   // Migraciones para delivery_routes (asegurar compatibilidad con el historial avanzado)
   try {
     db.exec(`ALTER TABLE delivery_routes ADD COLUMN assigned_at TEXT;`);
@@ -325,6 +361,39 @@ async function createSqlDatabase() {
     db.exec(`ALTER TABLE delivery_routes ADD COLUMN optimization_params_json TEXT;`);
   } catch (e) { }
 
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`ALTER TABLE delivery_routes ADD COLUMN archived_at TEXT;`);
+  } catch (e) { }
+
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS daily_closures (
+      day_key TEXT PRIMARY KEY,
+      orders_archived INTEGER NOT NULL DEFAULT 0,
+      total_orders INTEGER NOT NULL DEFAULT 0,
+      delivered_orders INTEGER NOT NULL DEFAULT 0,
+      cancelled_orders INTEGER NOT NULL DEFAULT 0,
+      total_sales REAL NOT NULL DEFAULT 0,
+      average_ticket REAL NOT NULL DEFAULT 0,
+      average_delivery_time_minutes REAL NOT NULL DEFAULT 0,
+      top_product TEXT NOT NULL DEFAULT '',
+      top_driver TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`);
+  } catch (e) { }
+
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );`);
+  } catch (e) { }
+
   const productCount = db.prepare('SELECT COUNT(*) AS total FROM products').get();
   if ((productCount && Number(productCount.total)) === 0) {
     db.transaction(() => { // Wrap demo data insertion in a transaction
@@ -343,24 +412,24 @@ async function createSqlDatabase() {
       insertAddress.run(clientTwo, 'principal', 'Carrera 34 # 7-80', 'Tequendama', 'Torre 2 apto 301', 1);
       insertAddress.run(clientThree, 'trabajo', 'Avenida 6 # 11-25', 'Granada', 'Oficina 403', 1);
 
-      insertProduct.run('Arroz wok pollo', 'Platos fuertes', 26000, JSON.stringify([]), 1);
-      insertProduct.run('Arroz wok cerdo', 'Platos fuertes', 27000, JSON.stringify([]), 1);
-      insertProduct.run('Ramen especial', 'Especiales', 32000, JSON.stringify([]), 1);
-      insertProduct.run('Combo familiar', 'Combos', 58000, JSON.stringify(['2 arroces + 2 bebidas']), 1);
-      insertProduct.run('Gaseosa personal', 'Bebidas', 5000, JSON.stringify([]), 1);
+      const productOne = insertProduct.run('Arroz wok pollo', 'Platos fuertes', 26000, JSON.stringify([]), 1).lastInsertRowid;
+      const productTwo = insertProduct.run('Arroz wok cerdo', 'Platos fuertes', 27000, JSON.stringify([]), 1).lastInsertRowid;
+      const productThree = insertProduct.run('Ramen especial', 'Especiales', 32000, JSON.stringify([]), 1).lastInsertRowid;
+      const productFour = insertProduct.run('Combo familiar', 'Combos', 58000, JSON.stringify(['2 arroces + 2 bebidas']), 1).lastInsertRowid;
+      const productFive = insertProduct.run('Gaseosa personal', 'Bebidas', 5000, JSON.stringify([]), 1).lastInsertRowid;
 
-      insertDriver.run('Carlos Gomez', '3205551001', 'Moto', 'Sur', 1, 'disponible');
-      insertDriver.run('Diego Torres', '3205551002', 'Moto', 'Centro', 1, 'disponible');
-      insertDriver.run('Luis Perez', '3205551003', 'Moto', 'Norte', 1, 'disponible');
-      insertDriver.run('Miguel Ruiz', '3205551004', 'Moto', 'Oeste', 0, 'inactivo');
+      const driverOne = insertDriver.run('Carlos Gomez', '3205551001', 'Moto', 'Sur', 1, 'disponible').lastInsertRowid;
+      const driverTwo = insertDriver.run('Diego Torres', '3205551002', 'Moto', 'Centro', 1, 'disponible').lastInsertRowid;
+      const driverThree = insertDriver.run('Luis Perez', '3205551003', 'Moto', 'Norte', 1, 'disponible').lastInsertRowid;
+      const driverFour = insertDriver.run('Miguel Ruiz', '3205551004', 'Moto', 'Oeste', 0, 'inactivo').lastInsertRowid;
 
-      const orderOne = insertOrder.run(clientOne, 1, 'en ruta', 'Efectivo', 'San Fernando', 'Calle 5 # 23-18', 'Porteria 2', 'Sin cebolla', 26000, 'Sur').lastInsertRowid;
-      const orderTwo = insertOrder.run(clientTwo, 2, 'listo para salir', 'Nequi/Daviplata', 'Tequendama', 'Carrera 34 # 7-80', 'Apto 301', 'Extra salsa', 32000, 'Centro').lastInsertRowid;
+      const orderOne = insertOrder.run(clientOne, driverOne, 'en ruta', 'Efectivo', 'San Fernando', 'Calle 5 # 23-18', 'Porteria 2', 'Sin cebolla', 26000, 'Sur').lastInsertRowid;
+      const orderTwo = insertOrder.run(clientTwo, driverTwo, 'listo para salir', 'Nequi/Daviplata', 'Tequendama', 'Carrera 34 # 7-80', 'Apto 301', 'Extra salsa', 32000, 'Centro').lastInsertRowid;
       const orderThree = insertOrder.run(clientThree, null, 'nuevo', 'Transferencia', 'Granada', 'Avenida 6 # 11-25', 'Oficina 403', 'Entregar antes de las 7', 58000, 'Norte').lastInsertRowid;
 
-      insertItem.run(orderOne, 1, 'Arroz wok pollo', 1, 26000, 26000);
-      insertItem.run(orderTwo, 3, 'Ramen especial', 1, 32000, 32000);
-      insertItem.run(orderThree, 4, 'Combo familiar', 1, 58000, 58000);
+      insertItem.run(orderOne, productOne, 'Arroz wok pollo', 1, 26000, 26000);
+      insertItem.run(orderTwo, productThree, 'Ramen especial', 1, 32000, 32000);
+      insertItem.run(orderThree, productFour, 'Combo familiar', 1, 58000, 58000);
     })(); // Execute the transaction immediately
   }
 

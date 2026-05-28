@@ -838,6 +838,34 @@
                   </div>
                 </div>
               </div>
+
+              <div class="panel" style="background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 18px; padding: 24px; width: 100%;">
+                <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
+                  <div>
+                    <h3 style="font-size: 18px; font-weight: 700;">Cierres diarios</h3>
+                    <div class="subtle" style="font-size: 12px; margin-top: 2px;">Histórico de días cerrados con resumen de ventas y actividad</div>
+                  </div>
+                  <div style="position: relative; width: 240px;">
+                    <span class="material-symbols-rounded" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 18px; color: var(--muted);">search</span>
+                    <input type="text" id="dailyClosuresSearchInput" placeholder="Buscar cierre por fecha..." style="width: 100%; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px 10px 38px; color: var(--text-primary); font-size: 13px;" />
+                  </div>
+                </div>
+                <div class="table-container" style="overflow-x: auto;">
+                  <table class="orders-table" id="dailyClosuresTable" style="width: 100%; border-collapse: separate; border-spacing: 0;">
+                    <thead>
+                      <tr style="background: rgba(0,0,0,0.1);">
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Fecha</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Pedidos</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Ventas</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Top producto</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: left; border-bottom: 1px solid var(--panel-border);">Top domiciliario</th>
+                        <th style="padding: 12px 16px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; text-align: center; border-bottom: 1px solid var(--panel-border);">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody id="dailyClosuresList" style="font-size: 13px;"></tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -857,7 +885,7 @@
                   </select>
                   <div style="display: flex; align-items: center; gap: 8px;">
                     <span class="subtle" style="font-size: 12px;">Corte:</span>
-                    <input name="cutoffHour" type="number" min="0" max="23" value="20" style="width: 60px; background: rgba(0,0,0,0.2); border: none; color: var(--text-primary); text-align: center; border-radius: 8px;" />
+                    <input name="cutoffHour" type="number" min="0" max="23" value="0" style="width: 60px; background: rgba(0,0,0,0.2); border: none; color: var(--text-primary); text-align: center; border-radius: 8px;" />
                   </div>
                   <button type="submit" class="primary" style="height: 38px; padding: 0 16px; font-size: 13px; border-radius: 8px;">Actualizar reporte</button>
                 </form>

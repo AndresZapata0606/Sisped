@@ -1,6 +1,37 @@
-const baseUrl = window.location.origin;
+let baseUrl = window.location.origin;
+
+// Detect API server on alternative port (dev convenience)
+(async function detectApiFallback() {
+  try {
+    // quick check against current origin
+    const resp = await fetch(`${baseUrl.replace(/\/$/, '')}/api/products`, { method: 'GET' });
+    if (resp.ok) return;
+  } catch (e) {
+    // ignore
+  }
+
+  // Probar varios puertos de desarrollo comunes (orden preferente)
+  const alts = [
+    'http://127.0.0.1:55681',
+    'http://127.0.0.1:55042'
+  ];
+
+  for (const altUrl of alts) {
+    try {
+      const r = await fetch(`${altUrl.replace(/\/$/, '')}/api/products`, { method: 'GET' });
+      if (r.ok) {
+        console.log('API fallback: using', altUrl);
+        baseUrl = altUrl;
+        break;
+      }
+    } catch (e) {
+      // intentar siguiente
+    }
+  }
+})();
 const pendingItems = [];
 let productsViewFilter = 'all';
+let productsViewCategory = 'all';
 let routeMapInstance = null;
 let routeLayerGroup = null;
 let googleMapInstance = null;
@@ -96,6 +127,7 @@ const dashboardState = {
   stats: null
 }; 
 let deliveryRoutesHistory = []; // Nuevo estado para el historial de rutas de domicilios
+let dailyClosuresHistory = [];
 
 // State for orders table pagination
 const ordersTableState = {
@@ -450,6 +482,26 @@ function formatBogotaDate(value) {
 
 function money(value) {
   return copFormatter.format(Number(value || 0));
+}
+
+function getBogotaDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(date);
+}
+
+function scheduleMidnightRefresh() {
+  let lastDateKey = getBogotaDateKey();
+  setInterval(() => {
+    const todayKey = getBogotaDateKey();
+    if (todayKey !== lastDateKey) {
+      lastDateKey = todayKey;
+      window.location.reload();
+    }
+  }, 60000);
 }
 
 async function request(path, options = {}) {
@@ -1512,7 +1564,7 @@ function renderProducts(products) {
   let filtered = products;
   const term = (productsTableState.searchTerm || '').toLowerCase().trim();
   if (term) {
-    filtered = filtered.filter(p => p.name.toLowerCase().includes(term) || p.category.toLowerCase().includes(term));
+    filtered = filtered.filter(p => p.name.toLowerCase().includes(term) || (p.category || '').toLowerCase().includes(term));
   }
 
   const getProductCard = (product) => {
@@ -1549,33 +1601,71 @@ function renderProducts(products) {
     `;
   };
 
-  const getGroupMarkup = (title, items, emptyMessage) => `
-    <section class="product-group">
-      <div class="product-group-header">
-        <div>
-          <h3>${title}</h3>
-          <p>${items.length} producto(s)</p>
-        </div>
-      </div>
-      <div class="product-group-list">
-        ${items.length ? items.map(getProductCard).join('') : `<div class="product-group-empty">${emptyMessage}</div>`}
-      </div>
-    </section>
+  // Agrupar por categoría para una navegación más cómoda
+  const byCategory = {};
+  filtered.forEach(p => {
+    const cat = (p.category || 'Otros').trim();
+    if (!byCategory[cat]) byCategory[cat] = [];
+    byCategory[cat].push(p);
+  });
+
+  const categories = Object.keys(byCategory).sort((a, b) => byCategory[b].length - byCategory[a].length);
+
+  // Construir barra de categorías dinámicas
+  const activeOnly = (productsTableState.showActiveOnly === true);
+
+  const categoryPillsMarkup = [
+    `<button class="cat-pill ${productsViewCategory==='all' ? 'active' : ''}" data-cat="all">Todos (${filtered.length})</button>`,
+    ...categories.map(c => `<button class="cat-pill ${productsViewCategory===c ? 'active' : ''}" data-cat="${escapeHtml(c)}">${escapeHtml(c)} (${byCategory[c].length})</button>`)
+  ].join('');
+
+  const categoryHeader = `
+    <div class="product-category-bar" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      ${categoryPillsMarkup}
+    </div>
   `;
 
-  const comboProducts = filtered.filter((product) => parseComboItems(product.combo_items).length > 0 || String(product.category || '').toLowerCase().includes('combo'));
-  const individualProducts = filtered.filter((product) => !parseComboItems(product.combo_items).length && !String(product.category || '').toLowerCase().includes('combo'));
-  const sections = {
-    all: [
-      getGroupMarkup('Productos individuales', individualProducts, 'No hay productos individuales que coincidan.'),
-      getGroupMarkup('Combos', comboProducts, 'No hay combos que coincidan.')
-    ],
-    individuals: [getGroupMarkup('Productos individuales', individualProducts, 'No hay productos individuales registrados.')],
-    combos: [getGroupMarkup('Combos', comboProducts, 'No hay combos registrados.')]
-  };
+  // Construir secciones por categoría (si se seleccionó 'all' o una categoría específica)
+  let html = '';
+  if (productsViewCategory === 'all') {
+    html += categoryHeader;
+    categories.forEach(cat => {
+      const items = byCategory[cat] || [];
+      html += `
+        <section class="product-group">
+          <div class="product-group-header">
+            <div>
+              <h3>${escapeHtml(cat)}</h3>
+              <p>${items.length} producto(s)</p>
+            </div>
+          </div>
+          <div class="product-group-list">
+            ${items.length ? items.map(getProductCard).join('') : `<div class="product-group-empty">No hay productos en esta categoría</div>`}
+          </div>
+        </section>
+      `;
+    });
+  } else {
+    // Categoria específica
+    const items = byCategory[productsViewCategory] || [];
+    html += categoryHeader;
+    html += `
+      <section class="product-group">
+        <div class="product-group-header">
+          <div>
+            <h3>${escapeHtml(productsViewCategory)}</h3>
+            <p>${items.length} producto(s)</p>
+          </div>
+        </div>
+        <div class="product-group-list">
+          ${items.length ? items.map(getProductCard).join('') : `<div class="product-group-empty">No hay productos en esta categoría</div>`}
+        </div>
+      </section>
+    `;
+  }
 
   if (container) {
-    container.innerHTML = sections[productsViewFilter].join('');
+    container.innerHTML = html;
   }
 
   if (select) {
@@ -1587,6 +1677,15 @@ function renderProducts(products) {
 
   document.querySelectorAll('[data-products-filter]').forEach((button) => {
     button.classList.toggle('active', button.dataset.productsFilter === productsViewFilter);
+  });
+
+  // Attach category pill handlers (delegation)
+  document.querySelectorAll('.product-category-bar .cat-pill').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const cat = btn.dataset.cat;
+      productsViewCategory = cat;
+      renderProducts(products);
+    });
   });
 }
 
@@ -2302,17 +2401,31 @@ async function healOrdersCoordinates(orders) {
 }
 
 async function refreshDashboard() {
-  const cutoffHour = document.querySelector('#statsForm [name="cutoffHour"]')?.value || 20;
+  const cutoffHour = document.querySelector('#statsForm [name="cutoffHour"]')?.value || 0;
   const routeDriverId = document.getElementById('routeDriverSelect')?.value || '';
   const maxPerRoute = document.getElementById('routeLimitSelect')?.value || 6;
 
-  const [products, drivers, orders, clients, stats, zones] = await Promise.all([
-    request('/api/products'),
+  let products;
+  try {
+    products = await request('/api/products');
+  } catch (err) {
+    // Fallback: intentar en 127.0.0.1:55042 (puerto de desarrollo donde importamos)
+    try {
+      baseUrl = 'http://127.0.0.1:55042';
+      console.log('refreshDashboard: switched baseUrl to', baseUrl);
+      products = await request('/api/products');
+    } catch (err2) {
+      throw err; // rethrow original
+    }
+  }
+
+  const [drivers, orders, clients, stats, zones, closures] = await Promise.all([
     request('/api/drivers'),
     request('/api/orders'),
     request('/api/clients'),
     request(`/api/stats?range=day&cutoffHour=${cutoffHour}`),
-    request('/api/dangerous-zones')
+    request('/api/dangerous-zones'),
+    request('/api/daily-closures')
   ]);
 
   LOGISTICS_CONFIG.dangerousZones = zones;
@@ -2336,6 +2449,7 @@ async function refreshDashboard() {
   dashboardState.clients = clients;
   dashboardState.stats = stats;
   dashboardState.routeSuggestion = routeSuggestion;
+  dailyClosuresHistory = Array.isArray(closures) ? closures : [];
 
   // Ejecutar balanceo automático de carga
   checkDriverBalance(drivers, orders);
@@ -3086,18 +3200,107 @@ function populateSampleOverview() {
   renderOverviewKpis();
   renderOverviewInsights();
   renderOrdersChart();
+  renderDailyClosures();
+}
+
+function renderDailyClosures() {
+  const tbody = document.getElementById('dailyClosuresList');
+  if (!tbody) return;
+
+  const searchTerm = String(document.getElementById('dailyClosuresSearchInput')?.value || '').toLowerCase().trim();
+  const filtered = (dailyClosuresHistory || []).filter((closure) => {
+    const haystack = [
+      closure.day_key,
+      closure.top_product,
+      closure.top_driver,
+      JSON.stringify(closure.snapshot || {})
+    ].join(' ').toLowerCase();
+    return !searchTerm || haystack.includes(searchTerm);
+  });
+
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="subtle" style="text-align:center; padding:16px;">No hay cierres diarios para mostrar.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((closure) => `
+    <tr class="orders-row" data-closure-day="${escapeHtml(closure.day_key)}" style="cursor: pointer;">
+      <td style="padding: 12px 16px;">${escapeHtml(closure.day_key)}</td>
+      <td style="padding: 12px 16px;">${Number(closure.total_orders || 0)} pedidos</td>
+      <td style="padding: 12px 16px;">${money(closure.total_sales)}</td>
+      <td style="padding: 12px 16px;">${escapeHtml(closure.top_product || 'Sin datos')}</td>
+      <td style="padding: 12px 16px;">${escapeHtml(closure.top_driver || 'Sin datos')}</td>
+      <td style="padding: 12px 16px; text-align:center;"><button type="button" class="btn-icon view-daily-closure" data-closure-day="${escapeHtml(closure.day_key)}">⋯</button></td>
+    </tr>
+  `).join('');
+
+  tbody.querySelectorAll('.orders-row').forEach((row) => {
+    row.addEventListener('click', (event) => {
+      if (event.target.closest('.view-daily-closure')) return;
+      const dayKey = row.dataset.closureDay;
+      const closure = dailyClosuresHistory.find((item) => String(item.day_key) === String(dayKey));
+      if (closure) showDailyClosureDetails(closure);
+    });
+  });
+
+  tbody.querySelectorAll('.view-daily-closure').forEach((button) => {
+    button.addEventListener('click', () => {
+      const dayKey = button.dataset.closureDay;
+      const closure = dailyClosuresHistory.find((item) => String(item.day_key) === String(dayKey));
+      if (closure) showDailyClosureDetails(closure);
+    });
+  });
+}
+
+function showDailyClosureDetails(closure) {
+  const snapshot = closure.snapshot || {};
+  showModal({
+    title: `Cierre diario ${closure.day_key}`,
+    body: `
+      <div class="stack-form" style="gap:12px;">
+        <div><strong>Pedidos:</strong> ${Number(snapshot.totalOrders || closure.total_orders || 0)}</div>
+        <div><strong>Ventas:</strong> ${money(snapshot.totalSales || closure.total_sales || 0)}</div>
+        <div><strong>Entregados:</strong> ${Number(snapshot.deliveredOrders || closure.delivered_orders || 0)}</div>
+        <div><strong>Cancelados:</strong> ${Number(snapshot.cancelledOrders || closure.cancelled_orders || 0)}</div>
+        <div><strong>Top producto:</strong> ${escapeHtml(snapshot.topProduct || closure.top_product || 'Sin datos')}</div>
+        <div><strong>Top domiciliario:</strong> ${escapeHtml(snapshot.topDriver || closure.top_driver || 'Sin datos')}</div>
+        <div><strong>Ticket promedio:</strong> ${money(snapshot.averageTicket || closure.average_ticket || 0)}</div>
+      </div>
+    `,
+    confirmText: 'Cerrar',
+    cancelText: null,
+    isWide: false
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   wireSidebarNavigation();
+  scheduleMidnightRefresh();
 
   // Intentar cargar datos reales; en caso de error, usar muestra para la maqueta
   (async () => {
     await loadGeneratedCaliNeighborhoodCenters();
     await refreshDashboard();
   })().catch((err) => {
-    console.warn('No se pudo cargar datos del backend, usando ejemplo local.', err);
-    populateSampleOverview();
+    console.warn('No se pudo cargar datos del backend, intentando fallback de productos.', err);
+    (async () => {
+      try {
+        const alt = 'http://127.0.0.1:55042';
+        const resp = await fetch(`${alt}/api/products`);
+        if (resp.ok) {
+          const products = await resp.json();
+          dashboardState.products = products;
+          renderProducts(products);
+          showToast('Productos cargados desde fallback local', 'success');
+          return;
+        }
+      } catch (e) {
+        console.warn('Fallback de productos falló', e);
+      }
+
+      console.warn('Usando datos de ejemplo local.');
+      populateSampleOverview();
+    })();
   }).finally(() => {
     // Attach handlers that require DOM + data
     attachDetailUpdateHandler();
@@ -5362,7 +5565,7 @@ async function main() {
     document.getElementById('statsForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const formData = getFormData(event.currentTarget);
-      const cutoffHour = formData.cutoffHour || 20; // Get cutoffHour from form, default to 20
+      const cutoffHour = formData.cutoffHour || 0; // Cutoff at midnight for daily reset
       const stats = await request(`/api/stats?range=${encodeURIComponent(formData.range)}&cutoffHour=${encodeURIComponent(cutoffHour)}`);
       renderStats(stats);
     });
@@ -5457,6 +5660,10 @@ async function main() {
     document.getElementById('routeHistorySearchInput')?.addEventListener('input', (e) => {
       // Trigger re-render of history with search term
       renderDeliveryRoutesHistory();
+    });
+
+    document.getElementById('dailyClosuresSearchInput')?.addEventListener('input', () => {
+      renderDailyClosures();
     });
 
     // Auto-refresco desactivado: el usuario refresca manualmente con el botón/acciones de la UI.
