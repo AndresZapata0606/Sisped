@@ -17,7 +17,7 @@ function normalizePhone(value) {
 // --- CONFIGURACIÓN LOGÍSTICA AVANZADA ---
 let LOGISTICS_CONFIG = {
   maxRouteDistanceKm: 12,
-  maxOrdersPerBatch: 5,
+  maxOrdersPerBatch: 6,
   deliveryBufferMin: 10,
   averageSpeedKmH: 25,
   dangerousZones: [] // Se cargará desde el API
@@ -119,7 +119,32 @@ const productsTableState = {
 // currently selected order id in the table
 ordersTableState.selectedId = null;
 
-const caliNeighborhoodCenters = {
+const caliCommuneCenters = {
+  1: [3.4645, -76.5450],
+  2: [3.4740, -76.5180],
+  3: [3.4575, -76.5305],
+  4: [3.4485, -76.5225],
+  5: [3.4375, -76.5285],
+  6: [3.4300, -76.5320],
+  7: [3.4435, -76.5095],
+  8: [3.4295, -76.5045],
+  9: [3.4215, -76.4995],
+  10: [3.4145, -76.4920],
+  11: [3.4045, -76.4925],
+  12: [3.3980, -76.5045],
+  13: [3.3920, -76.5215],
+  14: [3.3835, -76.5195],
+  15: [3.3910, -76.5345],
+  16: [3.4098, -76.5048],
+  17: [3.4220, -76.5200],
+  18: [3.4055, -76.5480],
+  19: [3.3945, -76.5450],
+  20: [3.3855, -76.5420],
+  21: [3.3735, -76.5350],
+  22: [3.4520, -76.5550]
+};
+
+let caliNeighborhoodCenters = {
   // NORTE
   'prados del norte': [3.4868, -76.5178],
   floralia: [3.485, -76.495],
@@ -128,6 +153,18 @@ const caliNeighborhoodCenters = {
   chipichape: [3.4742, -76.5169],
   sameco: [3.5012, -76.5078],
   salomia: [3.4701, -76.5075],
+  'la campina': [3.4727, -76.5284],
+  'san vicente': [3.4646, -76.5274],
+  'santa monica': [3.4668, -76.5353],
+  'la merced': [3.467, -76.5235],
+  'juanambu': [3.4546, -76.5389],
+  'el penon': [3.4617, -76.545],
+  'los alamos': [3.4723, -76.5078],
+  'villa del prado': [3.479, -76.4908],
+  chiminangos: [3.468, -76.4945],
+  calima: [3.4732, -76.5019],
+  menga: [3.4905, -76.4988],
+  'el bosque': [3.4748, -76.514],
 
   // CENTRO
   centro: [3.4516, -76.5320],
@@ -135,16 +172,33 @@ const caliNeighborhoodCenters = {
   versalles: [3.4604, -76.5291],
   'san nicolas': [3.4572, -76.5272],
   'san antonio': [3.4475, -76.5395],
+  'san pascual': [3.4443, -76.5347],
+  'barrio obrero': [3.4518, -76.5188],
+  guayaquil: [3.45, -76.527],
+  alameda: [3.4429, -76.529],
+  'santa isabel': [3.439, -76.5452],
+  'santa teresita': [3.455, -76.54],
 
   // SUR
   tequendama: [3.4297, -76.5402],
   'san fernando': [3.4392, -76.5486],
   belen: [3.4024, -76.5426],
   'el caney': [3.385, -76.525],
+  'antonio nariño': [3.4098, -76.5048],
+  'los cambulos': [3.4206, -76.54185],
+  'panamericano': [3.4229, -76.5358],
+  'siloe': [3.4299, -76.5523],
+  miraflores: [3.4338, -76.541],
+  'el lido': [3.4316, -76.548],
+  'nuevo tequendama': [3.418, -76.544],
+  'santa anita': [3.3774, -76.5442],
+  asturias: [3.397, -76.533],
+  ingenio: [3.389, -76.54],
   'valle del lili': [3.375, -76.53],
   capri: [3.4095, -76.5455],
   pampalinda: [3.4242, -76.5454],
   'ciudad jardin': [3.3738, -76.5382],
+  bochalema: [3.358, -76.536],
   pance: [3.34, -76.54],
 
   // ORIENTE
@@ -154,13 +208,23 @@ const caliNeighborhoodCenters = {
   'republica de israel': [3.411568, -76.515763],
   mojica: [3.4214, -76.4849],
   'los lagos': [3.4171, -76.4958],
+  'comuna 16': [3.4098, -76.5048],
   'potrero grande': [3.3992, -76.4755],
+  'ciudad cordoba': [3.4278, -76.4888],
+  villacolombia: [3.46, -76.5005],
+  'la base': [3.454, -76.504],
+  'el troncal': [3.457, -76.4988],
+  'san carlos': [3.4395, -76.5072],
+  'marroquin': [3.427, -76.49],
 
   // OESTE
   normandia: [3.4565, -76.5512],
   'santa rita': [3.4582, -76.5481],
   arboledas: [3.4527, -76.5468],
-  bellavista: [3.4378, -76.5562]
+  bellavista: [3.4378, -76.5562],
+  cristales: [3.444, -76.565],
+  aguacatal: [3.468, -76.575],
+  'san cayetano': [3.4555, -76.56]
 };
 
 function hashString(value) {
@@ -173,6 +237,19 @@ function normalizeNeighborhood(name) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .trim();
+}
+
+function dedupeOrdersById(orders) {
+  const seen = new Set();
+  return Array.isArray(orders)
+    ? orders.filter((order) => {
+        const key = order && order.id != null ? String(order.id) : null;
+        if (!key) return false;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+    : [];
 }
 
 function getRouteCoordinate(order, index = 0) {
@@ -188,6 +265,8 @@ function getRouteCoordinate(order, index = 0) {
   const nBarrio = normalizeNeighborhood(order.barrio);
   const nZone = normalizeNeighborhood(order.route_zone);
   const nAddress = normalizeNeighborhood(order.address);
+  const communeMatch = nBarrio.match(/comuna\s*(\d{1,2})/);
+  const communeCenter = communeMatch ? caliCommuneCenters[Number(communeMatch[1])] : null;
 
   // Búsqueda inteligente: intentamos encontrar el match más cercano
   const bestKey = Object.keys(caliNeighborhoodCenters).find(key => {
@@ -198,12 +277,25 @@ function getRouteCoordinate(order, index = 0) {
            (nAddress && nAddress.includes(nKey));
   });
 
-  const base = caliNeighborhoodCenters[bestKey] || [3.411568, -76.515763]; // SISPED SW coordinates
+  const base = caliNeighborhoodCenters[bestKey] || communeCenter || [3.411568, -76.515763]; // SISPED SW coordinates
   const offsetSeed = hashString(`${order.address || ''}-${order.id}-${index}`);
   const latOffset = ((offsetSeed % 7) - 3) * 0.0012;
   const lngOffset = (((offsetSeed >> 3) % 7) - 3) * 0.0012;
 
   return [base[0] + latOffset, base[1] + lngOffset];
+}
+
+async function loadGeneratedCaliNeighborhoodCenters() {
+  try {
+    const response = await fetch('assets/cali-neighborhood-centers.generated.json', { cache: 'no-store' });
+    if (!response.ok) return;
+    const generatedCenters = await response.json();
+    if (generatedCenters && typeof generatedCenters === 'object' && !Array.isArray(generatedCenters)) {
+      caliNeighborhoodCenters = { ...caliNeighborhoodCenters, ...generatedCenters };
+    }
+  } catch (error) {
+    console.warn('No se pudo cargar la base completa de barrios de Cali, se usa el fallback local.', error);
+  }
 }
 
 function formatRouteTitle(value) {
@@ -246,6 +338,14 @@ function wireSidebarNavigation() {
         console.error('Error rendering orders view', err);
       }
       document.body.classList.toggle('sidebar-open');
+    }
+
+    if (viewName === 'route-history') {
+      try {
+        renderDeliveryRoutesHistory();
+      } catch (err) {
+        console.error('Error rendering route history view', err);
+      }
     }
   }
 
@@ -723,9 +823,12 @@ function showModal({ title, body, confirmText = 'Aceptar', cancelText = 'Cancela
     const btnConfirm = document.createElement('button');
     btnConfirm.className = 'primary';
     btnConfirm.textContent = confirmText;
-    btnConfirm.onclick = () => {
+    btnConfirm.onclick = async () => {
+      if (onConfirm) {
+        const result = await onConfirm();
+        if (result === false) return;
+      }
       overlay.classList.remove('active');
-      if (onConfirm) onConfirm();
     };
     footerEl.appendChild(btnConfirm);
   }
@@ -1519,10 +1622,6 @@ function buildDriverModalBody(driver = null) {
           <label class="subtle">Vehículo</label>
           <input name="vehicle" type="text" placeholder="Moto" value="${escapeHtml(driver?.vehicle || 'Moto')}" />
         </div>
-        <div class="stack-form">
-          <label class="subtle">Zona / barrio</label>
-          <input name="zone" type="text" placeholder="Sur, Norte, Centro..." value="${escapeHtml(driver?.zone || '')}" />
-        </div>
       </div>
 
       <div class="form-grid-modal product-form-grid">
@@ -1573,7 +1672,6 @@ function openDriverModal(driver = null) {
               name: data.name,
               phone: data.phone,
               vehicle: data.vehicle,
-              zone: data.zone,
               active: data.active === '1',
               currentStatus: data.currentStatus
             })
@@ -1586,7 +1684,6 @@ function openDriverModal(driver = null) {
               name: data.name,
               phone: data.phone,
               vehicle: data.vehicle,
-              zone: data.zone,
               active: data.active === '1'
             })
           });
@@ -1614,7 +1711,6 @@ function renderDrivers(drivers) {
   if (term) {
     filtered = filtered.filter(d => 
       d.name.toLowerCase().includes(term) || 
-      (d.zone || '').toLowerCase().includes(term) ||
       (d.phone || '').includes(term)
     );
   }
@@ -1635,7 +1731,7 @@ function renderDrivers(drivers) {
   if (orderDriverSelect) {
     const realActive = drivers.filter(d => Number(d.active) === 1);
     orderDriverSelect.innerHTML = '<option value="">Sin asignar (despacho manual)</option>' +
-      realActive.map(d => `<option value="${d.id}">${d.name} (${d.zone || 'Sin zona'})</option>`).join('');
+      realActive.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
   }
 
   const renderDriverCard = (driver) => {
@@ -1664,11 +1760,7 @@ function renderDrivers(drivers) {
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border);">
-          <div>
-            <div class="subtle" style="font-size: 9px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em;">Zona Base</div>
-            <div style="font-size: 13px; font-weight: 600; margin-top: 2px;">${escapeHtml(driver.zone || 'No asignada')}</div>
-          </div>
+        <div style="display: grid; grid-template-columns: 1fr; gap: 12px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 12px; border: 1px solid var(--panel-border);">
           <div>
             <div class="subtle" style="font-size: 9px; text-transform: uppercase; font-weight: 800; letter-spacing: 0.05em;">Vehículo</div>
             <div style="font-size: 13px; font-weight: 600; margin-top: 2px;">${escapeHtml(driver.vehicle)}</div>
@@ -1870,15 +1962,25 @@ function showOrderDetail(order) {
   const clientName = document.getElementById('detailClientName'); if (clientName) clientName.textContent = order.client_name || '-';
   const clientPhone = document.getElementById('detailClientPhone'); if (clientPhone) clientPhone.textContent = order.client_phone || '-';
   const address = document.getElementById('detailAddress'); if (address) address.textContent = `${order.barrio || ''} · ${order.address || ''}`;
+  const breakdownSubtotal = (Array.isArray(order.items) ? order.items : []).reduce((sum, item) => {
+    const unitPrice = Number(item.unitPrice ?? item.unit_price ?? 0);
+    const quantity = Number(item.quantity || 1);
+    return sum + (unitPrice * quantity);
+  }, 0);
+  const shippingValue = resolveOrderShipping(order, breakdownSubtotal);
+  const breakdownTotal = breakdownSubtotal + shippingValue;
   const items = document.getElementById('detailItems'); if (items) {
     const list = (order.items || []).map(i => `<div style="display:flex;justify-content:space-between; padding:6px 0;"> <div>${escapeHtml(i.name_snapshot || i.name || 'Item')}</div><div class="subtle">x${i.quantity}</div></div>`).join('') || '<div class="subtle">Sin items</div>';
     items.innerHTML = `<div class="subtle">Resumen del pedido</div><div>${list}</div>`;
   }
-  const totalNode = document.getElementById('detailTotal'); if (totalNode) totalNode.textContent = money(order.total || 0);
+  const subtotalNode = document.getElementById('detailSubtotal'); if (subtotalNode) subtotalNode.textContent = money(breakdownSubtotal);
+  const shippingNode = document.getElementById('detailShipping'); if (shippingNode) shippingNode.textContent = money(shippingValue);
+  const totalNode = document.getElementById('detailTotal'); if (totalNode) totalNode.textContent = money(breakdownTotal || 0);
   const statusBadge = document.getElementById('detailStatusBadge'); if (statusBadge) {
     statusBadge.textContent = (order.status || '').toUpperCase();
     // adjust classes
-    statusBadge.className = 'insight-chip ' + (order.status && String(order.status).toLowerCase().includes('entreg') ? 'success' : (order.status && String(order.status).toLowerCase().includes('ruta') ? 'neutral' : ''));
+    const statusValue = String(order.status || '').toLowerCase();
+    statusBadge.className = 'insight-chip ' + (statusValue.includes('cancel') ? 'danger' : (statusValue.includes('entreg') ? 'success' : (statusValue.includes('ruta') ? 'neutral' : '')));
   }
 
   // highlight the corresponding row in the table
@@ -2142,7 +2244,6 @@ function renderOverviewInsights() {
     .filter((driver) => Number(driver.active) === 1)
     .map((driver) => ({
       name: driver.name,
-      zone: driver.zone || 'Sin zona',
       total: dashboardState.orders.filter((order) => order.driver_name === driver.name).length
     }))
     .sort((left, right) => right.total - left.total)[0] || null;
@@ -2161,9 +2262,9 @@ function renderOverviewInsights() {
   const elTopClientTotal = getEl('topClientTotal'); if (elTopClientTotal) elTopClientTotal.textContent = topClient ? `${money(topClient.total)} total` : '$0 total';
 
   const elTopDriverName = getEl('topDriverName'); if (elTopDriverName) elTopDriverName.textContent = topDriver ? topDriver.name : 'Sin datos';
-  const elTopDriverMeta = getEl('topDriverMeta'); if (elTopDriverMeta) elTopDriverMeta.textContent = topDriver ? `${topDriver.zone} · ${topDriver.total} pedidos asignados` : 'Se actualiza con la operación diaria.';
+  const elTopDriverMeta = getEl('topDriverMeta'); if (elTopDriverMeta) elTopDriverMeta.textContent = topDriver ? `${topDriver.total} pedidos asignados` : 'Se actualiza con la operación diaria.';
   const elTopDriverOrders = getEl('topDriverOrders'); if (elTopDriverOrders) elTopDriverOrders.textContent = topDriver ? `${topDriver.total} pedidos` : '0 pedidos';
-  const elTopDriverZone = getEl('topDriverZone'); if (elTopDriverZone) elTopDriverZone.textContent = topDriver ? topDriver.zone : 'Sin zona';
+  const elTopDriverZone = getEl('topDriverZone'); if (elTopDriverZone) elTopDriverZone.textContent = 'Cobertura ciudad';
 
   const elTopProductName = getEl('topProductName'); if (elTopProductName) elTopProductName.textContent = stats ? stats.topProduct : 'Sin datos';
   const elTopProductMeta = getEl('topProductMeta'); if (elTopProductMeta) elTopProductMeta.textContent = stats && stats.topProduct !== 'Sin datos' ? `El producto más vendido en el rango.` : 'Todavía no hay suficiente historial.';
@@ -2203,7 +2304,7 @@ async function healOrdersCoordinates(orders) {
 async function refreshDashboard() {
   const cutoffHour = document.querySelector('#statsForm [name="cutoffHour"]')?.value || 20;
   const routeDriverId = document.getElementById('routeDriverSelect')?.value || '';
-  const maxPerRoute = document.getElementById('routeLimitSelect')?.value || 5;
+  const maxPerRoute = document.getElementById('routeLimitSelect')?.value || 6;
 
   const [products, drivers, orders, clients, stats, zones] = await Promise.all([
     request('/api/products'),
@@ -2215,6 +2316,10 @@ async function refreshDashboard() {
   ]);
 
   LOGISTICS_CONFIG.dangerousZones = zones;
+
+  if (window.google && window.google.maps && window.google.maps.Geocoder) {
+    await healOrdersCoordinates(orders);
+  }
 
   const routeSuggestion = await request(`/api/routes/suggest?driverId=${encodeURIComponent(routeDriverId)}&maxPerRoute=${maxPerRoute}`);
 
@@ -2284,7 +2389,7 @@ function renderRoutes(routeSuggestion, drivers) {
     const currentValue = driverSelect.value;
     driverSelect.innerHTML = `
       <option value="">Todos los domiciliarios activos</option>
-      ${activeDrivers.map((driver) => `<option value="${driver.id}">${escapeHtml(driver.name)} · ${escapeHtml(driver.zone || 'Sin zona')}</option>`).join('')}
+      ${activeDrivers.map((driver) => `<option value="${driver.id}">${escapeHtml(driver.name)}</option>`).join('')}
     `;
     if (currentValue) {
       driverSelect.value = currentValue;
@@ -2292,19 +2397,80 @@ function renderRoutes(routeSuggestion, drivers) {
   }
 
   const suggestedRoutes = Array.isArray(routeSuggestion?.suggestedRoutes) ? routeSuggestion.suggestedRoutes : [];
-  const selectedIndex = dashboardState.selectedSuggestedRouteIndex || 0;
-  const currentRoute = suggestedRoutes[selectedIndex] || null;
-  const sequence = currentRoute ? currentRoute.orders : [];
+  // Si el servidor no unificó y solo hay 1 domiciliario activo, unir rutas en el cliente como fallback
+  const forceClientUnified = activeDrivers.length <= 1 && suggestedRoutes.length > 1;
+  const DEPOT_LAT = 3.411568;
+  const DEPOT_LON = -76.515763;
+  const distanceKmClient = (lat1, lon1, lat2, lon2) => {
+    const earthRadiusKm = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2
+      + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
 
-  const allOrdersReady = suggestedRoutes.reduce((acc, r) => acc + r.orders.length, 0);
-  const zonesCount = new Set(suggestedRoutes.map(r => r.zone)).size;
+  let displayedRoutes = suggestedRoutes;
+  if (forceClientUnified) {
+    const merged = suggestedRoutes.flatMap(r => Array.isArray(r.orders) ? r.orders : []);
+    const withCoords = merged.filter(o => Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude)));
+    const withoutCoords = merged.filter(o => !(Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude))));
+
+    withCoords.sort((a, b) => {
+      const da = distanceKmClient(DEPOT_LAT, DEPOT_LON, Number(a.latitude), Number(a.longitude));
+      const db = distanceKmClient(DEPOT_LAT, DEPOT_LON, Number(b.latitude), Number(b.longitude));
+      if (da !== db) return da - db;
+      return (b.priorityScore || 0) - (a.priorityScore || 0);
+    });
+
+    withoutCoords.sort((a, b) => {
+      const na = String(a.barrio || '').localeCompare(String(b.barrio || ''));
+      if (na !== 0) return na;
+      return (b.priorityScore || 0) - (a.priorityScore || 0);
+    });
+
+    const unifiedOrders = [...withCoords, ...withoutCoords];
+    let unifiedDistance = 0;
+    let unifiedEta = 0;
+    for (let i = 0; i < unifiedOrders.length; i++) {
+      const o = unifiedOrders[i];
+      if (i === 0) {
+        unifiedDistance += Number.isFinite(Number(o.distKm)) ? Number(o.distKm) : 0;
+        unifiedEta += Number.isFinite(Number(o.distKm)) ? Number(o.distKm) * 3 : 0;
+        continue;
+      }
+      const prev = unifiedOrders[i - 1];
+      if (Number.isFinite(Number(prev.latitude)) && Number.isFinite(Number(prev.longitude)) && Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude))) {
+        const leg = distanceKmClient(Number(prev.latitude), Number(prev.longitude), Number(o.latitude), Number(o.longitude));
+        unifiedDistance += leg;
+        unifiedEta += leg * 3;
+      } else if (Number.isFinite(Number(o.distKm))) {
+        unifiedDistance += Number(o.distKm);
+        unifiedEta += Number(o.distKm) * 3;
+      }
+    }
+
+    displayedRoutes = [{
+      id: 'route-1',
+      label: 'Ruta única',
+      orders: unifiedOrders,
+      estimatedDistanceKm: Number(unifiedDistance).toFixed(1),
+      estimatedEtaMinutes: Math.round(unifiedEta + (unifiedOrders.length * 5))
+    }];
+  }
+  const selectedIndex = dashboardState.selectedSuggestedRouteIndex || 0;
+  const currentRoute = displayedRoutes[selectedIndex] || null;
+  const sequence = currentRoute ? dedupeOrdersById(currentRoute.orders) : [];
+
+  const allOrdersReady = displayedRoutes.reduce((acc, r) => acc + (Array.isArray(r.orders) ? r.orders.length : 0), 0);
+  const routeCount = displayedRoutes.length;
 
   if (orderCount) {
     orderCount.textContent = String(routeSuggestion?.isHistory ? sequence.length : allOrdersReady);
   }
 
   if (neighborhoodCount) {
-    neighborhoodCount.textContent = String(routeSuggestion?.isHistory ? 1 : zonesCount);
+    neighborhoodCount.textContent = String(routeSuggestion?.isHistory ? 1 : routeCount);
   }
 
   if (distanceNode) {
@@ -2312,7 +2478,7 @@ function renderRoutes(routeSuggestion, drivers) {
     const backendDistance = currentRoute?.estimatedDistanceKm || routeSuggestion?.totalDistance;
     const distanceVal = backendDistance != null 
       ? Number(backendDistance) 
-      : Math.max(allOrdersReady * 1.8, zonesCount * 2.4, allOrdersReady ? 2 : 0);
+      : Math.max(allOrdersReady * 1.8, routeCount * 2.4, allOrdersReady ? 2 : 0);
     
     distanceNode.textContent = `${distanceVal.toFixed(1)} KM`;
   }
@@ -2321,7 +2487,7 @@ function renderRoutes(routeSuggestion, drivers) {
     const backendEta = currentRoute?.estimatedEtaMinutes || routeSuggestion?.totalEta;
     const etaVal = backendEta != null
       ? Math.round(Number(backendEta))
-      : Math.max(allOrdersReady * 8 + zonesCount * 6, 0);
+      : Math.max(allOrdersReady * 8 + routeCount * 6, 0);
     
     etaNode.textContent = `${etaVal} MIN`;
   }
@@ -2334,19 +2500,22 @@ function renderRoutes(routeSuggestion, drivers) {
 
   // Renderizar tarjetas de rutas sugeridas
   if (routesListContainer) {
-    routesListContainer.innerHTML = suggestedRoutes.length
-      ? suggestedRoutes.map((route, idx) => `
+    routesListContainer.innerHTML = displayedRoutes.length
+      ? displayedRoutes.map((route, idx) => {
+        const routeOrders = dedupeOrdersById(route.orders);
+        return `
         <div class="insight-card ${idx === selectedIndex ? 'selected-route' : ''}" 
              style="padding: 12px; cursor: pointer; border: 1px solid ${idx === selectedIndex ? 'var(--accent)' : 'var(--panel-border)'}; 
                     background: ${idx === selectedIndex ? 'rgba(245,158,11,0.05)' : 'rgba(0,0,0,0.15)'}; min-height: auto;"
              data-route-idx="${idx}"> 
           <div style="display:flex; justify-content:space-between; align-items:center;">
-            <strong style="font-size: 14px; margin: 0;">${escapeHtml(route.zone)}</strong>
-            <span class="insight-chip success" style="font-size: 10px;">${route.orders.length} pedidos</span>
+            <strong style="font-size: 14px; margin: 0;">${escapeHtml(route.label || `Ruta ${idx + 1}`)}</strong>
+            <span class="insight-chip success" style="font-size: 10px;">${routeOrders.length} pedidos</span>
           </div>
           <p style="font-size: 11px; margin-top: 4px;">Ruta #${idx + 1}</p>
         </div>
-      `).join('')
+      `;
+      }).join('')
       : '<div class="subtle">No hay rutas disponibles.</div>';
 
     routesListContainer.querySelectorAll('[data-route-idx]').forEach(card => {
@@ -2361,7 +2530,7 @@ function renderRoutes(routeSuggestion, drivers) {
   if (sequenceContainer) {
     const title = sequenceContainer.previousElementSibling;
     if (title && title.tagName === 'H3' && currentRoute) {
-      title.innerHTML = `Secuencia: <span style="color:var(--accent)">${escapeHtml(currentRoute.zone)}</span>`;
+      title.innerHTML = `Secuencia: <span style="color:var(--accent)">${escapeHtml(currentRoute.label || `Ruta ${selectedIndex + 1}`)}</span>`;
     }
     sequenceContainer.innerHTML = sequence.length
       ? sequence.map((order, index) => `
@@ -2746,8 +2915,58 @@ function renderRoutesGoogle(routeSuggestion) {
   if (googlePolyline) { googlePolyline.setMap(null); googlePolyline = null; }
 
   const suggestedRoutes = Array.isArray(routeSuggestion?.suggestedRoutes) ? routeSuggestion.suggestedRoutes : [];
+  const activeDrivers = Array.isArray(dashboardState.drivers) ? dashboardState.drivers.filter((d) => Number(d.active) === 1) : [];
+  const forceClientUnified = activeDrivers.length <= 1 && suggestedRoutes.length > 1;
+  let displayedRoutes = suggestedRoutes;
+  if (forceClientUnified) {
+    const merged = suggestedRoutes.flatMap(r => Array.isArray(r.orders) ? r.orders : []);
+    const DEPOT_LAT = 3.411568;
+    const DEPOT_LON = -76.515763;
+    const distanceKmClient = (lat1, lon1, lat2, lon2) => {
+      const earthRadiusKm = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) ** 2
+        + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+      return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const withCoords = merged.filter(o => Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude)));
+    const withoutCoords = merged.filter(o => !(Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude))));
+    withCoords.sort((a, b) => {
+      const da = distanceKmClient(DEPOT_LAT, DEPOT_LON, Number(a.latitude), Number(a.longitude));
+      const db = distanceKmClient(DEPOT_LAT, DEPOT_LON, Number(b.latitude), Number(b.longitude));
+      if (da !== db) return da - db;
+      return (b.priorityScore || 0) - (a.priorityScore || 0);
+    });
+    withoutCoords.sort((a, b) => {
+      const na = String(a.barrio || '').localeCompare(String(b.barrio || ''));
+      if (na !== 0) return na;
+      return (b.priorityScore || 0) - (a.priorityScore || 0);
+    });
+    const unifiedOrders = [...withCoords, ...withoutCoords];
+    let unifiedDistance = 0;
+    let unifiedEta = 0;
+    for (let i = 0; i < unifiedOrders.length; i++) {
+      const o = unifiedOrders[i];
+      if (i === 0) {
+        unifiedDistance += Number.isFinite(Number(o.distKm)) ? Number(o.distKm) : 0;
+        unifiedEta += Number.isFinite(Number(o.distKm)) ? Number(o.distKm) * 3 : 0;
+        continue;
+      }
+      const prev = unifiedOrders[i - 1];
+      if (Number.isFinite(Number(prev.latitude)) && Number.isFinite(Number(prev.longitude)) && Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude))) {
+        const leg = distanceKmClient(Number(prev.latitude), Number(prev.longitude), Number(o.latitude), Number(o.longitude));
+        unifiedDistance += leg;
+        unifiedEta += leg * 3;
+      } else if (Number.isFinite(Number(o.distKm))) {
+        unifiedDistance += Number(o.distKm);
+        unifiedEta += Number(o.distKm) * 3;
+      }
+    }
+    displayedRoutes = [{ id: 'route-1', label: 'Ruta única', orders: unifiedOrders, estimatedDistanceKm: Number(unifiedDistance).toFixed(1), estimatedEtaMinutes: Math.round(unifiedEta + (unifiedOrders.length * 5)) }];
+  }
   const selectedIndex = dashboardState.selectedSuggestedRouteIndex || 0;
-  const currentRoute = suggestedRoutes[selectedIndex] || null;
+  const currentRoute = displayedRoutes[selectedIndex] || null;
   const sequence = currentRoute ? currentRoute.orders : (Array.isArray(routeSuggestion?.sequence) ? routeSuggestion.sequence : []);
 
   const points = sequence.map((order, idx) => ({ order, coord: getRouteCoordinate(order, idx) }))
@@ -2873,7 +3092,10 @@ document.addEventListener('DOMContentLoaded', () => {
   wireSidebarNavigation();
 
   // Intentar cargar datos reales; en caso de error, usar muestra para la maqueta
-  refreshDashboard().catch((err) => {
+  (async () => {
+    await loadGeneratedCaliNeighborhoodCenters();
+    await refreshDashboard();
+  })().catch((err) => {
     console.warn('No se pudo cargar datos del backend, usando ejemplo local.', err);
     populateSampleOverview();
   }).finally(() => {
@@ -2890,12 +3112,12 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Handle updating order status from the detail panel
-async function updateOrderStatusRequest(orderId, newStatus) {
+async function updateOrderStatusRequest(orderId, newStatus, options = {}) {
   try {
     // Try backend first
     await request(`/api/orders/${encodeURIComponent(orderId)}/status`, {
       method: 'PATCH',
-      body: JSON.stringify({ status: newStatus })
+      body: JSON.stringify({ status: newStatus, ...options })
     });
     await refreshDashboard();
     showToast('Estado actualizado', 'success');
@@ -2956,12 +3178,16 @@ function attachDetailUpdateHandler() {
     showModal({
       title: 'Actualizar estado',
       body: `
-        <div style="display:grid; gap:8px;">
-          <button type="button" data-new-status="nuevo" class="btn-secondary">Nuevo</button>
-          <button type="button" data-new-status="en preparación" class="btn-secondary">En preparación</button>
-          <button type="button" data-new-status="listo para salir" class="btn-secondary">Listo para salir</button>
-          <button type="button" data-new-status="en ruta" class="btn-secondary">En ruta</button>
-          <button type="button" data-new-status="entregado" class="btn-secondary">Entregado</button>
+        <div style="display:grid; gap:12px;">
+          <div style="font-size:12px; color: var(--muted); line-height:1.4;">Selecciona el nuevo estado de la comanda. Si la cancelas, te pediremos el motivo.</div>
+          <div style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;">
+            <button type="button" data-new-status="nuevo" class="btn-secondary">Nuevo</button>
+            <button type="button" data-new-status="en preparación" class="btn-secondary">En preparación</button>
+            <button type="button" data-new-status="listo para salir" class="btn-secondary">Listo para salir</button>
+            <button type="button" data-new-status="en ruta" class="btn-secondary">En ruta</button>
+            <button type="button" data-new-status="entregado" class="btn-secondary">Entregado</button>
+            <button type="button" data-new-status="cancelado" class="btn-danger">Cancelado</button>
+          </div>
         </div>
       `,
       confirmText: null,
@@ -2976,11 +3202,39 @@ function attachDetailUpdateHandler() {
       overlay.querySelectorAll('button[data-new-status]').forEach(b => {
         b.addEventListener('click', () => {
           const newStatus = b.dataset.newStatus;
+          if (newStatus === 'cancelado') {
+            closeModals();
+            openCancelOrderModal(orderId);
+            return;
+          }
           closeModals();
           updateOrderStatusRequest(orderId, newStatus);
         });
       });
     });
+  });
+}
+
+function openCancelOrderModal(orderId) {
+  showModal({
+    title: 'Cancelar comanda',
+    body: `
+      <div style="display:grid; gap:10px;">
+        <div style="font-size:12px; color: var(--muted); line-height:1.4;">Escribe un motivo para dejar registro interno.</div>
+        <textarea id="cancelReasonInput" rows="4" placeholder="Ej. Cliente no responde, dirección incorrecta..." style="width:100%; resize:vertical; border-radius:12px; border:1px solid var(--panel-border); background: rgba(0,0,0,0.2); color: var(--text-primary); padding:12px;"></textarea>
+      </div>
+    `,
+    confirmText: 'Cancelar comanda',
+    cancelText: 'Volver',
+    onConfirm: async () => {
+      const reasonInput = document.getElementById('cancelReasonInput');
+      const reason = String(reasonInput?.value || '').trim();
+      if (!reason) {
+        showToast('Escribe un motivo de cancelación.', 'error');
+        return false;
+      }
+      await updateOrderStatusRequest(orderId, 'cancelado', { cancelledReason: reason });
+    }
   });
 }
 
@@ -3486,6 +3740,15 @@ function openClientModal(client = null) {
 
   const modalBody = document.querySelector('.modal-body');
   const form = modalBody.querySelector('#clientForm');
+  if (!form) {
+    showToast('No se pudo abrir el formulario de cliente.', 'error');
+    return;
+  }
+
+  const setFieldValue = (fieldName, value) => {
+    const field = form.querySelector(`[name="${fieldName}"]`);
+    if (field) field.value = value ?? '';
+  };
 
   if (client) {
     // Lógica de Pestañas
@@ -3501,19 +3764,19 @@ function openClientModal(client = null) {
     });
 
     // Llenar Formulario
-    form.clientId.value = client.id;
-    form.name.value = client.name;
-    form.phone.value = client.phone;
-    form.notes.value = client.notes || '';
+    setFieldValue('clientId', client.id);
+    setFieldValue('name', client.name);
+    setFieldValue('phone', client.phone);
+    setFieldValue('notes', client.notes || '');
     if (client.primaryAddress) {
-      form.address.value = client.primaryAddress.address;
-      form.barrio.value = client.primaryAddress.barrio;
-      form.reference.value = client.primaryAddress.reference;
-      form.urgencyLevel.value = client.primaryAddress.urgency_level || 'low';
-      form.deliveryBufferMinutes.value = client.primaryAddress.delivery_buffer_minutes || 0;
-      form.geocodingSource.value = client.primaryAddress.geocoding_source || '';
-      if (form.latitude) form.latitude.value = client.primaryAddress.latitude || '';
-      if (form.longitude) form.longitude.value = client.primaryAddress.longitude || '';
+      setFieldValue('address', client.primaryAddress.address);
+      setFieldValue('barrio', client.primaryAddress.barrio);
+      setFieldValue('reference', client.primaryAddress.reference);
+      setFieldValue('urgencyLevel', client.primaryAddress.urgency_level || 'low');
+      setFieldValue('deliveryBufferMinutes', client.primaryAddress.delivery_buffer_minutes || 0);
+      setFieldValue('geocodingSource', client.primaryAddress.geocoding_source || '');
+      setFieldValue('latitude', client.primaryAddress.latitude || '');
+      setFieldValue('longitude', client.primaryAddress.longitude || '');
     }
   } else {
     modalBody.querySelector('.tabs').style.display = 'none';
@@ -3535,7 +3798,7 @@ function openClientModal(client = null) {
 
     // Intentar geocodificar si no hay coordenadas
     let geocodingSource = form.querySelector('[name="geocodingSource"]')?.value || '';
-    if (!form.latitude.value || !form.longitude.value) {
+    if (!form.querySelector('[name="latitude"]')?.value || !form.querySelector('[name="longitude"]')?.value) {
       const resolved = await resolveOrderLocation(form);
       if (resolved) geocodingSource = resolved.source;
     }
@@ -3564,12 +3827,21 @@ function openClientModal(client = null) {
       if (client?.id) {
         await updateClientProfile(client.id, payload);
         if (payload.address) {
+          const addressPayload = {
+            label: 'principal',
+            address: payload.address,
+            barrio: payload.barrio,
+            reference: payload.reference,
+            latitude: payload.latitude,
+            longitude: payload.longitude,
+            geocodingSource: payload.geocodingSource
+          };
           const addresses = await request(`/api/clients/${client.id}/addresses`);
           const existingAddress = Array.isArray(addresses) ? addresses.find((address) => normalizeNeighborhood(address.address) === normalizeNeighborhood(payload.address) && normalizeNeighborhood(address.barrio) === normalizeNeighborhood(payload.barrio)) : null;
           if (existingAddress) {
-            await updateClientAddress(existingAddress.id, payload);
+            await updateClientAddress(existingAddress.id, addressPayload);
           } else {
-            await addClientAddress(client.id, payload);
+            await addClientAddress(client.id, addressPayload);
           }
         }
       } else {
@@ -3981,7 +4253,7 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
 
       // Intentar resolver coordenadas si no existen, y capturar el origen
       let geocodingSource = form.querySelector('[name="geocodingSource"]')?.value || '';
-      if (!form.latitude.value || !form.longitude.value) {
+      if (!form.querySelector('[name="latitude"]')?.value || !form.querySelector('[name="longitude"]')?.value) {
         const resolved = await resolveOrderLocation(form);
         if (resolved) geocodingSource = resolved.source;
       }
@@ -4377,13 +4649,33 @@ function calculateOrderTotal(items = [], shipping = 0, discount = 0, taxRate = 0
   };
 }
 
+function resolveOrderShipping(order = {}, subtotal = 0) {
+  const explicitShipping = Number(order.shipping ?? order.delivery_fee ?? order.deliveryFee);
+  if (Number.isFinite(explicitShipping) && explicitShipping > 0) {
+    return explicitShipping;
+  }
+
+  const storedTotal = Number(order.total);
+  if (Number.isFinite(storedTotal) && storedTotal > subtotal) {
+    return storedTotal - subtotal;
+  }
+
+  return subtotal > 0 ? 3000 : 0;
+}
+
 /**
  * 5. generateOrderSummary - Genera resumen visual de comanda
  * @param {Object} order - Datos de la comanda
  * @returns {string} HTML del resumen
  */
 function generateOrderSummary(order) {
-  const total = calculateOrderTotal(order.items, order.shipping);
+  const subtotal = (Array.isArray(order.items) ? order.items : []).reduce((sum, item) => {
+    const price = Number(item.unitPrice || item.unit_price || 0);
+    const qty = Number(item.quantity || 1);
+    return sum + (price * qty);
+  }, 0);
+  const shipping = resolveOrderShipping(order, subtotal);
+  const total = calculateOrderTotal(order.items, shipping);
   const itemsHtml = order.items.map(item => `
     <div style="display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0;">
       <span>${escapeHtml(item.name || 'Producto')} x${item.quantity}</span>
@@ -4820,12 +5112,27 @@ async function main() {
     if (assignBtn) {
       assignBtn.addEventListener('click', async () => {
         const driverSelect = document.getElementById('routeDriverSelect');
-        const maxPerRoute = document.getElementById('routeLimitSelect')?.value || 5;
+        const maxPerRoute = document.getElementById('routeLimitSelect')?.value || 6;
         const driverId = driverSelect ? Number(driverSelect.value) : null;
 
-        const suggestedRoutes = dashboardState.routeSuggestion?.suggestedRoutes || [];
-        const currentRoute = suggestedRoutes[dashboardState.selectedSuggestedRouteIndex];
-        const sequence = currentRoute ? currentRoute.orders : [];
+        const activeDriversForAssign = Array.isArray(dashboardState.drivers)
+          ? dashboardState.drivers.filter((driver) => Number(driver.active) === 1)
+          : [];
+        const suggestedRoutes = Array.isArray(dashboardState.routeSuggestion?.suggestedRoutes)
+          ? dashboardState.routeSuggestion.suggestedRoutes
+          : [];
+        let displayedRoutesAssign = suggestedRoutes;
+        if (activeDriversForAssign.length <= 1 && suggestedRoutes.length > 1) {
+          const merged = suggestedRoutes.flatMap((route) => Array.isArray(route.orders) ? route.orders : []);
+          const withCoords = merged.filter((order) => Number.isFinite(Number(order.latitude)) && Number.isFinite(Number(order.longitude)));
+          const withoutCoords = merged.filter((order) => !(Number.isFinite(Number(order.latitude)) && Number.isFinite(Number(order.longitude))));
+          withCoords.sort((a, b) => (Number(a.distKm || 0) - Number(b.distKm || 0)) || ((b.priorityScore || 0) - (a.priorityScore || 0)));
+          withoutCoords.sort((a, b) => String(a.barrio || '').localeCompare(String(b.barrio || '')));
+          displayedRoutesAssign = [{ id: 'route-1', label: 'Ruta única', orders: dedupeOrdersById([...withCoords, ...withoutCoords]) }];
+        }
+
+        const currentRoute = displayedRoutesAssign[dashboardState.selectedSuggestedRouteIndex];
+        const sequence = currentRoute ? dedupeOrdersById(currentRoute.orders) : [];
 
         const routeSummary = dashboardState.routeOptimization ? {
           distanceKm: dashboardState.routeOptimization.distanceKm,
@@ -4870,6 +5177,7 @@ async function main() {
             method: 'POST',
             body: JSON.stringify({ driverId, orderIds, route: finalSequence, routeSummary, optimizationParams: { maxPerRoute, driverId: driverSelect.value } }) // Pass optimization parameters
           });
+          deliveryRoutesHistory = [];
           showToast('Ruta asignada correctamente.', 'success');
           await refreshDashboard();
         } catch (err) {
@@ -4885,8 +5193,19 @@ async function main() {
     const previewBtn = document.getElementById('previewOptimizeBtn');
     if (previewBtn) {
       previewBtn.addEventListener('click', async () => {
+        // Recompute displayedRoutes same as renderRoutes to avoid mismatch
         const suggestedRoutes = dashboardState.routeSuggestion?.suggestedRoutes || [];
-        const currentRoute = suggestedRoutes[dashboardState.selectedSuggestedRouteIndex];
+        const activeDriversForPreview = Array.isArray(dashboardState.drivers) ? dashboardState.drivers.filter((d) => Number(d.active) === 1) : [];
+        let displayedRoutesPreview = suggestedRoutes;
+        if (activeDriversForPreview.length <= 1 && suggestedRoutes.length > 1) {
+          const merged = suggestedRoutes.flatMap(r => Array.isArray(r.orders) ? r.orders : []);
+          const withCoords = merged.filter(o => Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude)));
+          const withoutCoords = merged.filter(o => !(Number.isFinite(Number(o.latitude)) && Number.isFinite(Number(o.longitude))));
+          withCoords.sort((a, b) => (Number(a.distKm || 0) - Number(b.distKm || 0)) || ((b.priorityScore || 0) - (a.priorityScore || 0)));
+          withoutCoords.sort((a, b) => String(a.barrio || '').localeCompare(String(b.barrio || '')));
+          displayedRoutesPreview = [{ id: 'route-1', label: 'Ruta única', orders: dedupeOrdersById([...withCoords, ...withoutCoords]) }];
+        }
+        const currentRoute = displayedRoutesPreview[dashboardState.selectedSuggestedRouteIndex];
         const sequence = currentRoute ? currentRoute.orders : [];
 
         if (!sequence.length) {
@@ -4901,6 +5220,9 @@ async function main() {
             const coord = getRouteCoordinate(o, idx) || [];
             return { id: o.id, latitude: Number(o.latitude ?? coord[0] ?? 0), longitude: Number(o.longitude ?? coord[1] ?? 0) };
           }).filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
+
+          console.log('PREVIEW: sequence length', sequence.length, 'points to send', points.length);
+          console.log('PREVIEW points:', points);
 
           if (!points.length) {
             showToast('No se pudieron obtener coordenadas válidas para los pedidos.', 'error');
@@ -4922,9 +5244,18 @@ async function main() {
             if (!found) return null;
             return Object.assign({}, found, { latitude: item.latitude ?? item.lat ?? found.latitude, longitude: item.longitude ?? item.lon ?? found.longitude });
           }).filter(Boolean);
+          const uniqueOptimizedOrders = dedupeOrdersById(optimizedOrders);
 
           const previewSuggestion = JSON.parse(JSON.stringify(dashboardState.routeSuggestion));
-          previewSuggestion.suggestedRoutes[dashboardState.selectedSuggestedRouteIndex].orders = optimizedOrders;
+          previewSuggestion.suggestedRoutes[dashboardState.selectedSuggestedRouteIndex].orders = uniqueOptimizedOrders;
+
+          // DEBUG: registrar secuencia devuelta por el servidor y la que se pasará al render
+          try {
+            console.log('OPTIMIZE RESPONSE sequence:', opt.sequence);
+            console.log('mapped optimizedOrders:', uniqueOptimizedOrders);
+            console.log('previewSuggestion before render:', previewSuggestion.suggestedRoutes ? previewSuggestion.suggestedRoutes[dashboardState.selectedSuggestedRouteIndex] : null);
+            showToast(`Optimizacion: servidor devolvio ${Array.isArray(opt.sequence) ? opt.sequence.length : 0} puntos, mapeados ${uniqueOptimizedOrders.length}`, 'info');
+          } catch (e) { /* ignore */ }
 
           if (opt.geometry) previewSuggestion.geometry = opt.geometry;
 
@@ -5128,10 +5459,7 @@ async function main() {
       renderDeliveryRoutesHistory();
     });
 
-    // Auto-refresco de la actividad y estadísticas cada 30 segundos
-    setInterval(async () => {
-      await refreshDashboard();
-    }, 30000);
+    // Auto-refresco desactivado: el usuario refresca manualmente con el botón/acciones de la UI.
 
   }
 

@@ -475,6 +475,13 @@ body {
   margin-bottom: 20px;
 }
 
+.topbar-meta-stack {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
 .topbar h1 {
   font-size: var(--h1-size);
   line-height: var(--h1-line-height);
@@ -484,6 +491,10 @@ body {
 }
 
 .topbar-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
   padding: 10px 14px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.72);
@@ -539,9 +550,37 @@ body {
 .view-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: center;
   gap: 18px;
   margin-bottom: 14px;
+}
+
+.route-header-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 320px;
+}
+
+.route-global-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.route-action-btn {
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+}
+
+.route-action-btn.primary {
+  justify-content: center;
 }
 
 .view-header h2 {
@@ -3246,6 +3285,22 @@ gm-place-autocomplete::part(input):focus {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .topbar-meta-stack,
+  .route-header-aside {
+    width: 100%;
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .route-global-actions {
+    align-self: stretch;
+    justify-content: flex-start;
+  }
+
+  .route-action-btn {
+    width: 100%;
   }
 
   .inline-form,

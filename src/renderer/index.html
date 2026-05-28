@@ -129,7 +129,9 @@
             <p class="eyebrow">SISPED SW · Operación diaria</p>
             <h1>Dashboard de comandas, clientes y domicilios</h1>
           </div>
-          <div class="topbar-chip">Cali, Colombia</div>
+          <div class="topbar-meta-stack">
+            <div class="topbar-chip">Cali, Colombia</div>
+          </div>
         </header>
 
         <div class="dashboard-views">
@@ -278,7 +280,7 @@
                 <p id="topDriverMeta">Se actualiza con la operación diaria.</p>
                 <div class="insight-foot">
                   <span id="topDriverOrders">0 pedidos</span>
-                  <span id="topDriverZone">Sin zona</span>
+                  <span id="topDriverZone">Cobertura ciudad</span>
                 </div>
               </article>
               <article class="insight-card">
@@ -700,11 +702,13 @@
                 <p class="eyebrow" style="color: var(--accent); font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Logística Inteligente</p>
                 <h2 style="font-size: 24px; font-weight: 800; letter-spacing: -0.02em;">Despacho Geocalizado</h2>
               </div>
-              <div class="route-global-actions" style="display: flex; gap: 10px;">
-                <button type="button" id="routeRefreshBtn" class="mini-action" style="height: 42px; padding: 0 16px;"><span class="material-symbols-rounded" style="font-size: 18px;">refresh</span> Actualizar</button>
-                <button type="button" id="assignRouteBtn" class="primary" style="height: 42px; display: flex; align-items: center; gap: 8px; font-weight: 700;">
-                  <span class="material-symbols-rounded" style="font-size: 20px;">task_alt</span> Asignar Ruta
-                </button>
+              <div class="route-header-aside">
+                <div class="route-global-actions">
+                  <button type="button" id="routeRefreshBtn" class="mini-action route-action-btn"><span class="material-symbols-rounded" style="font-size: 18px;">refresh</span> Actualizar</button>
+                  <button type="button" id="assignRouteBtn" class="primary route-action-btn">
+                    <span class="material-symbols-rounded" style="font-size: 20px;">task_alt</span> Asignar Ruta
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -756,8 +760,8 @@
                       <select id="routeLimitSelect" style="background: rgba(0,0,0,0.2); border: none; color: var(--text-primary); font-size: 13px;">
                         <option value="3">3 pedidos</option>
                         <option value="4">4 pedidos</option>
-                        <option value="5" selected>5 pedidos</option>
-                        <option value="6">6 pedidos</option>
+                        <option value="5">5 pedidos</option>
+                        <option value="6" selected>6 pedidos</option>
                       </select>
                     </div>
                     <div style="display: flex; gap: 8px; border-left: 1px solid var(--panel-border); padding-left: 16px;">
@@ -772,7 +776,7 @@
                     <div id="routeMap" class="route-map" style="border-radius: 20px; border: 1px solid var(--panel-border); background: #07111f; flex-grow: 1; box-shadow: inset 0 0 40px rgba(0,0,0,0.5);"></div>
                     <div>
                       <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-                        <span class="material-symbols-rounded" style="color: var(--accent); font-size: 20px;">explore</span> Sugerencias de Agrupación
+                        <span class="material-symbols-rounded" style="color: var(--accent); font-size: 20px;">explore</span> Rutas sugeridas
                       </h3>
                       <div id="suggestedRoutesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;"></div>
                     </div>

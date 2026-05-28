@@ -18,24 +18,30 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "proj4": "^2.20.8",
+    "shapefile": "^0.6.6",
     "sql.js": "^1.12.0"
-  }
-  ,
+  },
   "devDependencies": {
-    "electron-builder": "^24.0.0",
     "electron": "^35.1.4",
+    "electron-builder": "^24.0.0",
     "png-to-ico": "^1.0.0"
   },
   "build": {
     "appId": "com.sisped.sw",
     "productName": "SISPED SW",
-    "files": ["**/*", "!node_modules/*/.cache"],
+    "files": [
+      "**/*",
+      "!node_modules/*/.cache"
+    ],
     "directories": {
       "buildResources": "build",
       "output": "dist"
     },
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "icon": "build/icon.ico"
     }
   }

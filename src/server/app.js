@@ -136,7 +136,7 @@ function createRouteSuggestion(db, orderId) {
   const siblingOrders = db.prepare(`
     SELECT id, barrio, address, total, status
     FROM orders
-    WHERE id != ? AND status IN ('listo para salir', 'en ruta')
+    WHERE id != ? AND status = 'listo para salir'
     ORDER BY barrio ASC, datetime(created_at) ASC
     LIMIT 5
   `).all(orderId);
@@ -533,12 +533,26 @@ async function startServer() {
   });
 
   app.patch('/api/addresses/:id', (request, response) => {
+    const addressId = Number(request.params.id);
+    const currentAddress = db.prepare('SELECT * FROM client_addresses WHERE id = ?').get(addressId);
+    if (!currentAddress) {
+      return response.status(404).json({ message: 'Dirección no encontrada.' });
+    }
+
     const { label, address, barrio, reference, latitude, longitude, geocodingSource } = request.body;
+    const nextLabel = String(label || currentAddress.label || 'otra').trim();
+    const nextAddress = String(address || currentAddress.address || '').trim();
+    const nextBarrio = String(barrio || currentAddress.barrio || '').trim();
+    const nextReference = String(reference || currentAddress.reference || '').trim();
+    const nextLatitude = latitude !== undefined && latitude !== '' ? Number(latitude) : currentAddress.latitude;
+    const nextLongitude = longitude !== undefined && longitude !== '' ? Number(longitude) : currentAddress.longitude;
+    const nextGeocodingSource = geocodingSource !== undefined ? (geocodingSource || null) : currentAddress.geocoding_source;
+
     db.prepare(`
       UPDATE client_addresses
       SET label = ?, address = ?, barrio = ?, reference = ?, latitude = ?, longitude = ?, geocoding_source = ?
       WHERE id = ?
-    `).run(label, address, barrio, reference, latitude ? Number(latitude) : null, longitude ? Number(longitude) : null, geocodingSource || null, request.params.id);
+    `).run(nextLabel, nextAddress, nextBarrio, nextReference, nextLatitude, nextLongitude, nextGeocodingSource, addressId);
     db.save();
     response.json({ ok: true });
   });
@@ -883,7 +897,6 @@ async function startServer() {
     const name = String(request.body.name || '').trim();
     const phone = normalizePhone(request.body.phone);
     const vehicle = String(request.body.vehicle || 'Moto').trim();
-    const zone = String(request.body.zone || '').trim();
 
     if (!name) {
       return response.status(400).json({ message: 'El nombre del domiciliario es obligatorio.' });
@@ -892,7 +905,7 @@ async function startServer() {
     const result = db.prepare(`
       INSERT INTO drivers (name, phone, vehicle, zone, active, current_status)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(name, phone, vehicle, zone, request.body.active === false ? 0 : 1, 'disponible');
+    `).run(name, phone, vehicle, '', request.body.active === false ? 0 : 1, 'disponible');
     db.save(); // Persist changes
     response.status(201).json(db.prepare('SELECT * FROM drivers WHERE id = ?').get(result.lastInsertRowid));
   });
@@ -908,7 +921,6 @@ async function startServer() {
     const name = String(request.body.name || driver.name).trim();
     const phone = request.body.phone !== undefined ? normalizePhone(request.body.phone) : driver.phone;
     const vehicle = String(request.body.vehicle || driver.vehicle).trim();
-    const zone = String(request.body.zone || driver.zone).trim();
     const active = request.body.active !== undefined ? (request.body.active ? 1 : 0) : driver.active;
     const currentStatus = request.body.currentStatus ? String(request.body.currentStatus).trim() : driver.current_status;
 
@@ -916,7 +928,7 @@ async function startServer() {
       UPDATE drivers
       SET name = ?, phone = ?, vehicle = ?, zone = ?, active = ?, current_status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(name, phone, vehicle, zone, active, currentStatus, id);
+    `).run(name, phone, vehicle, '', active, currentStatus, id);
     db.save();
     response.json(db.prepare('SELECT * FROM drivers WHERE id = ?').get(id));
   });
@@ -1378,24 +1390,51 @@ async function startServer() {
     try {
       // Asegurar que si driverId es un string vacío se trate como null
       const driverId = request.query.driverId && request.query.driverId.trim() !== '' ? Number(request.query.driverId) : null;
-      const maxPerRoute = toNumber(request.query.maxPerRoute) || 5;
+      const maxPerRoute = Math.max(1, toNumber(request.query.maxPerRoute) || 6);
+      const activeDriversCount = db.prepare(`
+        SELECT COUNT(*) AS total
+        FROM drivers
+        WHERE active = 1
+      `).get()?.total || 0;
+      const forceSingleRoute = activeDriversCount <= 1;
 
-      // Cargar zonas peligrosas
-      let dangerousZones = [];
-      try {
-        dangerousZones = db.prepare('SELECT * FROM dangerous_zones').all().map(z => ({
-          ...z, polygon: JSON.parse(z.polygon_json || '[]')
-        }));
-      } catch (e) {
-      }
+      const DEPOT_LAT = 3.411568;
+      const DEPOT_LON = -76.515763;
+
+      const distanceKm = (lat1, lon1, lat2, lon2) => {
+        const earthRadiusKm = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2
+          + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+        return earthRadiusKm * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      };
+
+      const parseCreatedAt = (value) => {
+        const normalized = String(value || '').replace(' ', 'T');
+        const parsed = new Date(normalized);
+        return Number.isFinite(parsed.getTime()) ? parsed : null;
+      };
+
+      const calculatePriority = (order) => {
+        let score = 0;
+        const createdAt = parseCreatedAt(order.created_at);
+        if (createdAt) {
+          const waitMin = (Date.now() - createdAt.getTime()) / 60000;
+          if (Number.isFinite(waitMin)) score += Math.min(Math.max(waitMin, 0), 40);
+        }
+        if (String(order.urgency_level || '').toLowerCase() === 'critical') score += 30;
+        if (Number(order.total) > 80000) score += 10;
+        return Math.min(score, 100);
+      };
 
       // 1. Obtener pedidos base
       const ordersData = db.prepare(`
         SELECT o.id, o.barrio, o.address, o.status, o.total, o.latitude, o.longitude, o.urgency_level, o.delivery_buffer_minutes, o.created_at, c.name AS client_name, o.geocoding_source
         FROM orders o
         INNER JOIN clients c ON c.id = o.client_id
-        WHERE o.status IN ('listo para salir', 'en ruta')
-        ORDER BY o.barrio ASC, datetime(o.created_at) ASC
+        WHERE o.status = 'listo para salir'
+        ORDER BY datetime(o.created_at) ASC, o.id ASC
         LIMIT 100
       `).all();
 
@@ -1420,178 +1459,196 @@ async function startServer() {
           longitude: (o.longitude != null && !isNaN(Number(o.longitude))) ? Number(o.longitude) : null
         };
       });
-
-      const DEPOT_LAT = 3.411568;
-      const DEPOT_LON = -76.515763;
-      const DEPOT_ID = 'depot';
-
-      const allPoints = [{ id: DEPOT_ID, latitude: DEPOT_LAT, longitude: DEPOT_LON }, ...ordersWithCoords];
-      const validPoints = allPoints.filter(p => p.latitude != null && p.longitude != null);
-      const osrmCoords = validPoints.map(p => `${p.longitude},${p.latitude}`);
-
-      let osrmDistances = null; // meters
-      let osrmDurations = null; // seconds
-
-      if (validPoints.length > 1) { 
-        try {
-          const baseUrl = OSRM_BASE_URL.replace(/\/$/, '');
-          const tableUrl = `${baseUrl}/table/v1/driving/${osrmCoords.join(';')}?annotations=duration,distance`;
-          
-          const tableResult = await requestUrl(tableUrl);
-
-          if (tableResult.statusCode === 200) {
-            try {
-              const tableParsed = JSON.parse(tableResult.body);
-              osrmDistances = tableParsed.distances || null;
-              osrmDurations = tableParsed.durations || null;
-            } catch (e) {
-            }
-          } else {
-          }
-        } catch (e) {
-        }
-      } else {
-      }
-
-      const ordersWithDepotDistance = ordersWithCoords.map((order) => {
-        const orderLat = Number(order.latitude) || DEPOT_LAT;
-        const orderLon = Number(order.longitude) || DEPOT_LON;
-
-        let distKm;
-        const vIdx = validPoints.findIndex(p => p.id === order.id);
-        if (Array.isArray(osrmDistances) && Array.isArray(osrmDistances[0]) && vIdx !== -1 && osrmDistances[0][vIdx] != null) {
-          distKm = Number(osrmDistances[0][vIdx]) / 1000;
-        } else {
-          distKm = Math.sqrt(Math.pow((Number(orderLat) - DEPOT_LAT) * 111, 2) + Math.pow((Number(orderLon) - DEPOT_LON) * 111 * Math.cos(DEPOT_LAT * Math.PI / 180), 2));
-        }
-        return { ...order, distKm: Number.isFinite(distKm) ? distKm : 0 };
-      });
-
-      const ordersWithPriority = ordersWithDepotDistance.map(o => {
-        let score = 0;
-        try {
-          const dateStr = String(o.created_at || '').replace(' ', 'T');
-          const waitMin = (new Date() - new Date(dateStr)) / 60000;
-          if (Number.isFinite(waitMin)) score += Math.min(Math.max(waitMin, 0), 40);
-        } catch (e) {
-          // Ignorar error de fecha
-        }
-        
-        if (o.total > 80000) score += 15;
-        if (o.urgency_level === 'critical') score += 30;
-
-        const isDangerous = dangerousZones.some(z => {
-          try {
-            if (!o.latitude) return false;
-            const lats = (z.polygon || []).map(p => p[0]).filter(Number.isFinite);
-            return lats.length > 0 && o.latitude > Math.min(...lats) && o.latitude < Math.max(...lats);
-          } catch (e) { return false; }
-        });
-        if (isDangerous) score += 15;
-
-        const lat = o.latitude != null ? Number(o.latitude) : DEPOT_LAT;
-        const lon = o.longitude != null ? Number(o.longitude) : DEPOT_LON;
-        return { ...o, priorityScore: Number.isFinite(score) ? Math.min(score, 100) : 0, quadrant: getQuadrant(lat, lon, DEPOT_LAT, DEPOT_LON) };
-      });
-
-      ordersWithPriority.sort((a, b) => b.priorityScore - a.priorityScore);
-
-      const zones = [
-        { name: 'Zona Cercana', maxDist: 2, orders: [] },
-        { name: 'Zona Media', maxDist: 5, orders: [] },
-        { name: 'Zona Lejana (4km+)', maxDist: Infinity, orders: [] }
-      ];
-
-      ordersWithPriority.forEach(order => {
-        const zone = zones.find(z => order.distKm <= z.maxDist);
-        if (zone) zone.orders.push(order);
-      });
-
       let finalSuggestedRoutes = [];
 
-      zones.forEach(zone => {
-        let currentZoneOrders = [...zone.orders];
-        while (currentZoneOrders.length > 0 && finalSuggestedRoutes.length < 50) {
-          const routeOrders = [];
-          let currentRouteDistance = 0;
-          let currentRouteDuration = 0;
+      const withCoords = [];
+      const withoutCoords = [];
 
-          const firstOrder = currentZoneOrders.shift();
-          if (firstOrder) {
-            routeOrders.push(firstOrder);
-            
-            const fIdx = validPoints.findIndex(p => p.id === firstOrder.id);
-            if (Array.isArray(osrmDistances) && Array.isArray(osrmDurations) && fIdx !== -1) {
-              currentRouteDistance += (Number(osrmDistances[0][fIdx]) || 0) / 1000;
-              currentRouteDuration += (Number(osrmDurations[0][fIdx]) || 0) / 60;
-            } else {
-              currentRouteDistance += Number(firstOrder.distKm) || 0;
-              currentRouteDuration += (Number(firstOrder.distKm) || 0) * 3; // 3 min/km
-            }
-          }
+      ordersWithCoords.forEach((order) => {
+        const hasCoords = Number.isFinite(order.latitude) && Number.isFinite(order.longitude);
+        const item = {
+          ...order,
+          hasCoords,
+          distKm: hasCoords ? distanceKm(DEPOT_LAT, DEPOT_LON, order.latitude, order.longitude) : null,
+          priorityScore: calculatePriority(order)
+        };
 
-          // Añadir más pedidos a la ruta hasta el límite o capacidad
-          for (let i = 0; i < currentZoneOrders.length && routeOrders.length < maxPerRoute; i++) {
-            const nextOrder = currentZoneOrders[i];
-
-            const firstQuadrant = routeOrders[0].quadrant;
-            const isOpposite = (firstQuadrant === 'NE' && nextOrder.quadrant === 'SW') ||
-              (firstQuadrant === 'NW' && nextOrder.quadrant === 'SE') ||
-              (firstQuadrant === 'SE' && nextOrder.quadrant === 'NW') ||
-              (firstQuadrant === 'SW' && nextOrder.quadrant === 'NE');
-
-            if (isOpposite && nextOrder.distKm > 3) continue;
-
-            const nIdx = validPoints.findIndex(p => p.id === nextOrder.id);
-            const lastOrderInRoute = routeOrders[routeOrders.length - 1];
-            const lIdx = validPoints.findIndex(p => p.id === lastOrderInRoute.id);
-
-            if (Array.isArray(osrmDistances) && Array.isArray(osrmDurations) && nIdx !== -1 && lIdx !== -1) {
-              const segDist = (osrmDistances[lIdx] || [])[nIdx] || 0;
-              const segDur = (osrmDurations[lIdx] || [])[nIdx] || 0;
-              currentRouteDistance += Number(segDist) / 1000;
-              currentRouteDuration += Number(segDur) / 60;
-            } else {
-              currentRouteDistance += Number(nextOrder.distKm) || 0;
-              currentRouteDuration += (Number(nextOrder.distKm) || 0) * 3;
-            }
-            routeOrders.push(nextOrder);
-            currentZoneOrders.splice(i, 1);
-            i--;
-          }
-
-          if (routeOrders.length > 0) {
-            finalSuggestedRoutes.push({
-              id: `route-${zone.name}-${finalSuggestedRoutes.length}`,
-              zone: zone.name,
-              orders: routeOrders,
-              estimatedDistanceKm: Number(currentRouteDistance).toFixed(1),
-              estimatedEtaMinutes: Math.round(currentRouteDuration + (routeOrders.length * 5))
-            });
-          }
+        if (hasCoords) {
+          withCoords.push(item);
+        } else {
+          withoutCoords.push(item);
         }
       });
 
-      if (finalSuggestedRoutes.length === 0 && ordersWithCoords.length > 0) {
-        const groupedByBarrio = ordersWithCoords.reduce((acc, order) => {
+      withCoords.sort((left, right) => {
+        const byDistance = (left.distKm || 0) - (right.distKm || 0);
+        if (byDistance !== 0) return byDistance;
+        const byPriority = (right.priorityScore || 0) - (left.priorityScore || 0);
+        if (byPriority !== 0) return byPriority;
+        return new Date(left.created_at || 0) - new Date(right.created_at || 0);
+      });
+
+      withoutCoords.sort((left, right) => {
+        const barrioCompare = String(left.barrio || '').localeCompare(String(right.barrio || ''));
+        if (barrioCompare !== 0) return barrioCompare;
+        const byPriority = (right.priorityScore || 0) - (left.priorityScore || 0);
+        if (byPriority !== 0) return byPriority;
+        return new Date(left.created_at || 0) - new Date(right.created_at || 0);
+      });
+
+      const buildCoordinateRoute = () => {
+        const routeOrders = [];
+        let routeDistanceKm = 0;
+        let routeEtaMinutes = 0;
+        let minDepotDistance = Infinity;
+        let maxDepotDistance = 0;
+        const routeName = `Ruta ${finalSuggestedRoutes.length + 1}`;
+
+        const firstOrder = withCoords.shift();
+        if (!firstOrder) return null;
+
+        routeOrders.push(firstOrder);
+        minDepotDistance = firstOrder.distKm || 0;
+        maxDepotDistance = firstOrder.distKm || 0;
+        routeDistanceKm += firstOrder.distKm || 0;
+        routeEtaMinutes += (firstOrder.distKm || 0) * 3;
+
+        while (routeOrders.length < maxPerRoute && withCoords.length > 0) {
+          const lastOrder = routeOrders[routeOrders.length - 1];
+          let bestIndex = -1;
+          let bestLegKm = Number.POSITIVE_INFINITY;
+
+          for (let index = 0; index < withCoords.length; index += 1) {
+            const candidate = withCoords[index];
+            const legKm = distanceKm(lastOrder.latitude, lastOrder.longitude, candidate.latitude, candidate.longitude);
+            const projectedMin = Math.min(minDepotDistance, candidate.distKm || 0);
+            const projectedMax = Math.max(maxDepotDistance, candidate.distKm || 0);
+            const spreadKm = projectedMax - projectedMin;
+
+            if (legKm > 4) continue;
+            if (spreadKm > 4) continue;
+
+            if (legKm < bestLegKm) {
+              bestLegKm = legKm;
+              bestIndex = index;
+            }
+          }
+
+          if (bestIndex === -1) break;
+
+          const nextOrder = withCoords.splice(bestIndex, 1)[0];
+          routeOrders.push(nextOrder);
+          routeDistanceKm += bestLegKm;
+          routeEtaMinutes += bestLegKm * 3;
+          minDepotDistance = Math.min(minDepotDistance, nextOrder.distKm || 0);
+          maxDepotDistance = Math.max(maxDepotDistance, nextOrder.distKm || 0);
+        }
+
+        return {
+          id: `route-${routeName}-${finalSuggestedRoutes.length}`,
+          label: routeName,
+          orders: routeOrders,
+          estimatedDistanceKm: Number(routeDistanceKm).toFixed(1),
+          estimatedEtaMinutes: Math.round(routeEtaMinutes + (routeOrders.length * 5))
+        };
+      };
+
+      while (withCoords.length > 0 && finalSuggestedRoutes.length < 50) {
+        const route = buildCoordinateRoute();
+        if (!route) break;
+        finalSuggestedRoutes.push(route);
+      }
+
+      if (withoutCoords.length > 0) {
+        const groupedByBarrio = withoutCoords.reduce((accumulator, order) => {
           const key = order.barrio || 'Sin barrio';
-          if (!acc[key]) acc[key] = [];
-          acc[key].push(order);
-          return acc;
+          if (!accumulator[key]) accumulator[key] = [];
+          accumulator[key].push(order);
+          return accumulator;
         }, {});
+
         Object.entries(groupedByBarrio).forEach(([barrio, barrioOrders]) => {
-          for (let i = 0; i < barrioOrders.length; i += maxPerRoute) {
+          for (let index = 0; index < barrioOrders.length; index += maxPerRoute) {
+            const routeOrders = barrioOrders.slice(index, index + maxPerRoute);
+            const estimatedDistanceKm = Math.max((routeOrders.length - 1) * 2.4, 0);
+            const estimatedEtaMinutes = Math.round((routeOrders.length * 8) + (routeOrders.length > 1 ? 5 : 0));
+
             finalSuggestedRoutes.push({
               id: `route-${barrio}-${finalSuggestedRoutes.length}`,
-              zone: barrio,
-              orders: barrioOrders.slice(i, i + maxPerRoute)
+              label: barrio,
+              orders: routeOrders,
+              estimatedDistanceKm: estimatedDistanceKm.toFixed(1),
+              estimatedEtaMinutes
             });
           }
         });
       }
+
+      finalSuggestedRoutes.sort((left, right) => {
+        const leftOrder = left.orders[0];
+        const rightOrder = right.orders[0];
+        const leftDistance = Number.isFinite(leftOrder?.distKm) ? leftOrder.distKm : Number.POSITIVE_INFINITY;
+        const rightDistance = Number.isFinite(rightOrder?.distKm) ? rightOrder.distKm : Number.POSITIVE_INFINITY;
+        return leftDistance - rightDistance;
+      });
+
+      if (forceSingleRoute && finalSuggestedRoutes.length > 1) {
+        const mergedOrders = finalSuggestedRoutes.flatMap((route) => route.orders || []);
+        const coordsOrders = mergedOrders.filter((order) => Number.isFinite(order.latitude) && Number.isFinite(order.longitude));
+        const noCoordsOrders = mergedOrders.filter((order) => !Number.isFinite(order.latitude) || !Number.isFinite(order.longitude));
+
+        coordsOrders.sort((left, right) => {
+          const leftDist = distanceKm(DEPOT_LAT, DEPOT_LON, left.latitude, left.longitude);
+          const rightDist = distanceKm(DEPOT_LAT, DEPOT_LON, right.latitude, right.longitude);
+          if (leftDist !== rightDist) return leftDist - rightDist;
+          return (right.priorityScore || 0) - (left.priorityScore || 0);
+        });
+
+        noCoordsOrders.sort((left, right) => {
+          const barrioCompare = String(left.barrio || '').localeCompare(String(right.barrio || ''));
+          if (barrioCompare !== 0) return barrioCompare;
+          return (right.priorityScore || 0) - (left.priorityScore || 0);
+        });
+
+        const unifiedOrders = [...coordsOrders, ...noCoordsOrders];
+        let unifiedDistanceKm = 0;
+        let unifiedEtaMinutes = 0;
+
+        unifiedOrders.forEach((order, index) => {
+          if (index === 0) {
+            unifiedDistanceKm += Number.isFinite(order.distKm) ? order.distKm : 0;
+            unifiedEtaMinutes += Number.isFinite(order.distKm) ? order.distKm * 3 : 0;
+            return;
+          }
+
+          const previous = unifiedOrders[index - 1];
+          if (Number.isFinite(previous.latitude) && Number.isFinite(previous.longitude) && Number.isFinite(order.latitude) && Number.isFinite(order.longitude)) {
+            const legKm = distanceKm(previous.latitude, previous.longitude, order.latitude, order.longitude);
+            unifiedDistanceKm += legKm;
+            unifiedEtaMinutes += legKm * 3;
+          } else if (Number.isFinite(order.distKm)) {
+            unifiedDistanceKm += order.distKm;
+            unifiedEtaMinutes += order.distKm * 3;
+          }
+        });
+
+        finalSuggestedRoutes = [{
+          id: 'route-1',
+          label: 'Ruta única',
+          orders: unifiedOrders,
+          estimatedDistanceKm: Number(unifiedDistanceKm).toFixed(1),
+          estimatedEtaMinutes: Math.round(unifiedEtaMinutes + (unifiedOrders.length * 5))
+        }];
+      }
+
+      finalSuggestedRoutes = finalSuggestedRoutes.map((route, index) => ({
+        ...route,
+        id: `route-${index + 1}`
+      }));
 
       response.json({
         driverId,
+        activeDriversCount,
         suggestedRoutes: finalSuggestedRoutes,
         sequence: finalSuggestedRoutes.length > 0 ? finalSuggestedRoutes[0].orders : []
       });
