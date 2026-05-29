@@ -384,7 +384,7 @@ function wireSidebarNavigation() {
   if (newOrderButton) {
     newOrderButton.addEventListener('click', () => {
       openOrderModal();
-      if (window.innerWidth <= 840) {
+      if (window.innerWidth <= 1120) {
         document.body.classList.remove('sidebar-open');
       }
     });
@@ -397,7 +397,7 @@ function wireSidebarNavigation() {
       const target = nav.dataset.target;
       if (target) {
         setActiveView(target);
-        if (window.innerWidth <= 840) {
+        if (window.innerWidth <= 1120) {
           document.body.classList.remove('sidebar-open');
         }
       }
@@ -1284,10 +1284,10 @@ async function renderClients() {
 
   tbody.innerHTML = pageItems.map(c => `
     <tr class="orders-row client-row ${clientsTableState.selectedId === c.id ? 'selected' : ''}" data-client-id="${c.id}">
-      <td><div style="font-weight:700;">${escapeHtml(c.name)}</div></td>
-      <td class="subtle">${escapeHtml(c.phone)}</td>
-      <td class="subtle">${escapeHtml(c.primaryAddress?.barrio || 'N/A')} · ${escapeHtml(c.primaryAddress?.address || '')}</td>
-      <td style="text-align:right;"><strong>${c.addressCount ?? c.address_count ?? 0}</strong> direcciones</td>
+      <td data-label="Nombre"><div style="font-weight:700;">${escapeHtml(c.name)}</div></td>
+      <td class="subtle" data-label="Teléfono">${escapeHtml(c.phone)}</td>
+      <td class="subtle" data-label="Última dirección">${escapeHtml(c.primaryAddress?.barrio || 'N/A')} · ${escapeHtml(c.primaryAddress?.address || '')}</td>
+      <td style="text-align:right;" data-label="Pedidos"><strong>${c.addressCount ?? c.address_count ?? 0}</strong> direcciones</td>
     </tr>
   `).join('');
 
@@ -1323,14 +1323,16 @@ async function showClientDetail(client) {
     addresses = await request(`/api/clients/${client.id}/addresses`);
   } catch (e) { console.error(e); }
 
+  const visibleAddresses = getVisibleClientAddresses(addresses);
+
   const isArchived = Number(client.archived) === 1;
-  const addressCards = addresses.length
-    ? addresses.map((addr) => `
+  const addressCards = visibleAddresses.length
+    ? visibleAddresses.map((addr) => `
       <article class="client-address-card ${addr.is_primary ? 'is-primary' : ''}">
         <div class="client-address-card-head">
           <div>
             <div class="client-chip-row">
-              <span class="client-card-chip">${escapeHtml(addr.label || 'Dirección')}</span>
+              <span class="client-card-chip">${escapeHtml(getAddressDisplayLabel(addr))}</span>
               ${addr.is_primary ? '<span class="client-card-chip accent">Principal</span>' : ''}
             </div>
             <div class="client-address-text">${escapeHtml(addr.address)}</div>
@@ -1956,7 +1958,7 @@ function renderOrders(orders) {
         <h4>Pedido #${order.id} · <span class="meta">${order.client_name}</span></h4>
         <div class="timeline-meta">${order.client_phone} · ${order.barrio} · ${order.address}</div>
         <div class="tag-row" style="margin-top:8px;">
-          <span class="tag">${money(order.total)}</span>
+          <span class="tag">${money(getOrderDisplayTotal(order))}</span>
           <span class="tag ${statusClass}">${order.status}</span>
         </div>
         <div class="order-actions" style="margin-top: 8px;">
@@ -2017,13 +2019,13 @@ function renderOrdersTable(orders) {
   // build table rows
   tbody.innerHTML = pageItems.map(o => `
     <tr class="orders-row" data-order-id="${o.id}">
-      <td class="col-id">#${o.id}</td>
-      <td class="col-client"><div class="client-name">${escapeHtml(o.client_name)}</div><div class="subtle client-phone">${escapeHtml(o.client_phone || '')}</div></td>
-      <td class="col-address"><div class="subtle">${escapeHtml(o.barrio || '')} · ${escapeHtml(o.address || '')}</div></td>
-      <td class="col-status"><span class="order-status-badge ${getOrderStatusClass(o.status)}">${escapeHtml(o.status || '')}</span></td>
-      <td class="col-total"><strong>${money(o.total)}</strong></td>
-      <td class="col-time"><div class="subtle">${formatBogotaTime(o.created_at)}</div></td>
-      <td class="col-actions"><button class="btn-icon" data-order-id="${o.id}">⋯</button></td>
+      <td class="col-id" data-label="ID">#${o.id}</td>
+      <td class="col-client" data-label="Cliente"><div class="client-name">${escapeHtml(o.client_name)}</div><div class="subtle client-phone">${escapeHtml(o.client_phone || '')}</div></td>
+      <td class="col-address" data-label="Dirección"><div class="subtle">${escapeHtml(o.barrio || '')} · ${escapeHtml(o.address || '')}</div></td>
+      <td class="col-status" data-label="Estado"><span class="order-status-badge ${getOrderStatusClass(o.status)}">${escapeHtml(o.status || '')}</span></td>
+      <td class="col-total" data-label="Total"><strong>${money(getOrderDisplayTotal(o))}</strong></td>
+      <td class="col-time" data-label="Hora"><div class="subtle">${formatBogotaTime(o.created_at)}</div></td>
+      <td class="col-actions" data-label="Acciones"><button class="btn-icon" data-order-id="${o.id}">⋯</button></td>
     </tr>
   `).join('');
 
@@ -4062,7 +4064,10 @@ function openClientModal(client = null) {
 
 async function handlePhoneBlur(event) {
   const phone = (event.target.value || '').trim();
-  const nameInput = document.querySelector('.modal-body [name="name"]');
+  const form = event.target.closest('#orderForm');
+  if (form && form.dataset.orderClientManualOverride === '1') return;
+
+  const nameInput = form ? form.querySelector('[name="name"]') : document.querySelector('.modal-body [name="name"]');
   const currentNameInput = nameInput ? (nameInput.value || '').trim() : '';
 
   if (phone.length >= 7) {
@@ -4117,31 +4122,97 @@ function syncOrderClientAddress(form, address) {
   if (refInp) refInp.value = address.reference || '';
 }
 
+function normalizeAddressSignature(address) {
+  const rawAddress = String(address?.address || '').trim().toLowerCase();
+  const normalized = rawAddress
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(',')[0]
+    .replace(/\s*#\s*/g, ' #')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return normalized;
+}
+
+function getAddressDisplayLabel(address) {
+  const rawLabel = String(address?.label || '').trim();
+  if (Number(address?.is_primary) === 1) return 'Principal';
+  if (!rawLabel) return 'Dirección';
+  if (rawLabel.toLowerCase() === 'principal') return 'Dirección';
+  return rawLabel;
+}
+
+function getVisibleClientAddresses(addresses) {
+  const list = Array.isArray(addresses) ? addresses : [];
+  const primaryAddress = list.find((address) => Number(address.is_primary) === 1) || list[0] || null;
+  if (!primaryAddress) return [];
+
+  const primarySignature = normalizeAddressSignature(primaryAddress);
+  return list.filter((address) => {
+    if (address?.id === primaryAddress.id) return true;
+    return normalizeAddressSignature(address) !== primarySignature;
+  });
+}
+
 function renderOrderSavedAddresses(form, client) {
   const wrap = form.querySelector('#orderSavedAddressWrap');
-  const select = form.querySelector('#orderSavedAddressSelect');
+  const list = form.querySelector('#orderSavedAddressList');
   const selectedAddressField = form.querySelector('[name="selectedAddressId"]');
   const addresses = Array.isArray(client?.addresses) ? client.addresses : [];
+  const visibleAddresses = getVisibleClientAddresses(addresses);
 
-  if (!wrap || !select || !selectedAddressField) return;
+  if (!wrap || !list || !selectedAddressField) return;
 
-  if (!addresses.length) {
+  if (!visibleAddresses.length) {
     wrap.style.display = 'none';
-    select.innerHTML = '';
+    list.innerHTML = '';
     selectedAddressField.value = '';
     return;
   }
 
   wrap.style.display = 'block';
-  form.__selectedClientAddresses = addresses;
-  select.innerHTML = addresses.map((address) => `
-    <option value="${address.id}">${escapeHtml(address.label || 'Dirección')} · ${escapeHtml(address.address || '')} ${address.is_primary ? '(Principal)' : ''}</option>
+  form.__selectedClientAddresses = visibleAddresses;
+  const primaryAddress = visibleAddresses.find((address) => Number(address.is_primary) === 1) || visibleAddresses[0];
+  const storageKey = client && client.id ? `lastSelectedAddress_for_client_${client.id}` : null;
+  const storedSelection = storageKey ? localStorage.getItem(storageKey) : null;
+  const selectedAddressId = String(selectedAddressField.value || storedSelection || primaryAddress.id);
+
+  list.innerHTML = visibleAddresses.map((address) => `
+    <button type="button" data-saved-address-id="${address.id}" class="saved-address-item ${String(address.id) === selectedAddressId ? 'is-selected' : ''}" aria-pressed="${String(address.id) === selectedAddressId ? 'true' : 'false'}">
+      <div style="display:flex; justify-content:space-between; gap: 10px; align-items:center;">
+        <strong style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em;">${escapeHtml(getAddressDisplayLabel(address))}</strong>
+        ${address.is_primary ? '<span class="subtle" style="font-size: 11px;">Principal</span>' : ''}
+      </div>
+      <div style="font-size: 13px; line-height: 1.35;">${escapeHtml(address.address || '')}</div>
+      <div class="subtle" style="font-size: 11px;">${escapeHtml(address.barrio || '')}${address.reference ? ` · ${escapeHtml(address.reference)}` : ''}</div>
+    </button>
   `).join('');
 
-  const primaryAddress = addresses.find((address) => Number(address.is_primary) === 1) || addresses[0];
-  select.value = String(primaryAddress.id);
   selectedAddressField.value = String(primaryAddress.id);
   syncOrderClientAddress(form, primaryAddress);
+
+  list.querySelectorAll('[data-saved-address-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const selectedAddress = visibleAddresses.find((address) => String(address.id) === String(button.dataset.savedAddressId));
+      if (!selectedAddress) return;
+
+      selectedAddressField.value = String(selectedAddress.id);
+      syncOrderClientAddress(form, selectedAddress);
+      // persist selection per client
+      if (storageKey) localStorage.setItem(storageKey, String(selectedAddress.id));
+
+      list.querySelectorAll('[data-saved-address-id]').forEach((item) => {
+        const is = item === button;
+        item.classList.toggle('is-selected', is);
+        item.setAttribute('aria-pressed', is ? 'true' : 'false');
+      });
+
+      // focus for keyboard users
+      try { button.focus(); } catch (e) {}
+    });
+  });
 }
 
 async function fillOrderClientData(client, targetForm = document.querySelector('#orderForm')) {
@@ -4156,6 +4227,11 @@ async function fillOrderClientData(client, targetForm = document.querySelector('
   setFieldValue('[name="clientId"]', client.id || '');
   const nameInp = form.querySelector('[name="name"]');
   if (nameInp) nameInp.value = client.name;
+  const phoneInp = form.querySelector('[name="phone"]');
+  if (phoneInp) phoneInp.value = client.phone || '';
+
+  form.__selectedClient = client;
+  form.dataset.orderClientManualOverride = '0';
 
   if (client.primaryAddress) {
     syncOrderClientAddress(form, client.primaryAddress);
@@ -4181,21 +4257,95 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
     const clientLookupPanel = form.querySelector('#orderClientMatchPanel');
     const clientLookupResults = form.querySelector('#orderClientMatchResults');
     const savedAddressWrap = form.querySelector('#orderSavedAddressWrap');
-    const savedAddressSelect = form.querySelector('#orderSavedAddressSelect');
+    const savedAddressList = form.querySelector('#orderSavedAddressList');
     let clientLookupTimer = null;
+    let currentClientSuggestions = [];
+    let activeSuggestionIndex = -1;
 
     const setFieldValue = (selector, value) => {
       const field = form.querySelector(selector);
       if (field) field.value = value ?? '';
     };
 
+    const normalizeClientSearch = (value) => String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '');
+
+    const normalizeClientPhone = (value) => String(value || '').replace(/\D/g, '');
+
+    const buildHighlightedText = (text, query) => {
+      const rawText = String(text || '');
+      const normalizedQuery = normalizeClientSearch(query);
+
+      if (!rawText || !normalizedQuery) {
+        return escapeHtml(rawText);
+      }
+
+      const normalizedChars = [];
+      const sourceMap = [];
+
+      for (let index = 0; index < rawText.length; index += 1) {
+        const normalizedChar = rawText[index]
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .toLowerCase();
+
+        for (const char of normalizedChar) {
+          if (/^[a-z0-9]$/.test(char)) {
+            normalizedChars.push(char);
+            sourceMap.push(index);
+          }
+        }
+      }
+
+      const normalizedText = normalizedChars.join('');
+      const matchIndex = normalizedText.indexOf(normalizedQuery);
+
+      if (matchIndex === -1) {
+        return escapeHtml(rawText);
+      }
+
+      const startIndex = sourceMap[matchIndex];
+      const endIndex = sourceMap[matchIndex + normalizedQuery.length - 1] + 1;
+
+      return `${escapeHtml(rawText.slice(0, startIndex))}<mark style="background: rgba(59, 130, 246, 0.28); color: inherit; border-radius: 4px; padding: 0 2px;">${escapeHtml(rawText.slice(startIndex, endIndex))}</mark>${escapeHtml(rawText.slice(endIndex))}`;
+    };
+
+    const getSelectedClient = () => form.__selectedClient || null;
+
     const clearClientSelection = () => {
       if (clientIdField) clientIdField.value = '';
       if (selectedAddressField) selectedAddressField.value = '';
       if (savedAddressWrap) savedAddressWrap.style.display = 'none';
-      if (savedAddressSelect) savedAddressSelect.innerHTML = '';
+      if (savedAddressList) savedAddressList.innerHTML = '';
       if (clientLookupPanel) clientLookupPanel.style.display = 'none';
       if (clientLookupResults) clientLookupResults.innerHTML = '';
+      form.__selectedClient = null;
+      currentClientSuggestions = [];
+      activeSuggestionIndex = -1;
+    };
+
+    const setActiveSuggestionIndex = (index) => {
+      if (!currentClientSuggestions.length || !clientLookupResults) {
+        activeSuggestionIndex = -1;
+        return;
+      }
+
+      activeSuggestionIndex = (index + currentClientSuggestions.length) % currentClientSuggestions.length;
+      clientLookupResults.querySelectorAll('[data-order-client-id]').forEach((button, buttonIndex) => {
+        const isActive = buttonIndex === activeSuggestionIndex;
+        button.style.borderColor = isActive ? 'rgba(59,130,246,0.8)' : 'var(--panel-border)';
+        button.style.boxShadow = isActive ? '0 0 0 2px rgba(59,130,246,0.2)' : 'none';
+        button.style.background = isActive ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.03)';
+      });
+    };
+
+    const selectClientSuggestion = async (client) => {
+      if (!client) return;
+      await fillOrderClientData(client, form);
+      if (clientLookupPanel) clientLookupPanel.style.display = 'none';
     };
 
     const renderClientSuggestions = (clients, query) => {
@@ -4203,17 +4353,33 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
       if (!Array.isArray(clients) || !clients.length) {
         clientLookupPanel.style.display = 'none';
         clientLookupResults.innerHTML = '';
+        currentClientSuggestions = [];
+        activeSuggestionIndex = -1;
         return;
       }
 
+      const normalizedQuery = normalizeClientSearch(query);
+      const normalizedPhoneQuery = normalizeClientPhone(query);
+      currentClientSuggestions = [...clients].sort((left, right) => {
+        const leftName = normalizeClientSearch(left.name);
+        const rightName = normalizeClientSearch(right.name);
+        const leftPhone = normalizeClientPhone(left.phone);
+        const rightPhone = normalizeClientPhone(right.phone);
+
+        const leftScore = (leftName === normalizedQuery || leftPhone === normalizedPhoneQuery) ? 0 : ((leftName.startsWith(normalizedQuery) || leftPhone.startsWith(normalizedPhoneQuery)) ? 1 : 2);
+        const rightScore = (rightName === normalizedQuery || rightPhone === normalizedPhoneQuery) ? 0 : ((rightName.startsWith(normalizedQuery) || rightPhone.startsWith(normalizedPhoneQuery)) ? 1 : 2);
+
+        return leftScore - rightScore;
+      }).slice(0, 5);
+
       clientLookupPanel.style.display = 'block';
-      clientLookupResults.innerHTML = clients.slice(0, 5).map((client) => {
+      clientLookupResults.innerHTML = currentClientSuggestions.map((client) => {
         const primaryAddress = client.primaryAddress || client.addresses?.find((address) => Number(address.is_primary) === 1) || client.addresses?.[0] || null;
         return `
           <button type="button" data-order-client-id="${client.id}" style="text-align:left; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--panel-border); background: rgba(255,255,255,0.03); color: var(--text-primary); display: flex; flex-direction: column; gap: 4px;">
             <div style="display:flex; justify-content:space-between; gap: 10px; align-items:center;">
-              <strong style="font-size: 13px;">${escapeHtml(client.name)}</strong>
-              <span class="subtle" style="font-size: 11px;">${escapeHtml(client.phone)}</span>
+              <strong style="font-size: 13px;">${buildHighlightedText(client.name, query)}</strong>
+              <span class="subtle" style="font-size: 11px;">${buildHighlightedText(client.phone, query)}</span>
             </div>
             <div class="subtle" style="font-size: 11px;">${primaryAddress ? `${escapeHtml(primaryAddress.address || '')} · ${escapeHtml(primaryAddress.barrio || '')}` : 'Sin dirección principal'}</div>
             <div class="subtle" style="font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em;">${client.addressCount || client.addresses?.length || 0} dirección(es)</div>
@@ -4225,29 +4391,35 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
         button.addEventListener('click', async () => {
           const client = clients.find((item) => Number(item.id) === Number(button.dataset.orderClientId));
           if (client) {
-            await fillOrderClientData(client, form);
-            clientLookupPanel.style.display = 'none';
+            await selectClientSuggestion(client);
           }
         });
       });
+
+      setActiveSuggestionIndex(0);
     };
 
     const lookupClientMatches = async (query) => {
       const term = String(query || '').trim();
       if (term.length < 2) {
-        clientLookupPanel && (clientLookupPanel.style.display = 'none');
+        if (!term.length) {
+          clearClientSelection();
+          form.dataset.orderClientManualOverride = '0';
+        } else if (clientLookupPanel) {
+          clientLookupPanel.style.display = 'none';
+        }
         return;
       }
 
       try {
         const clients = await request(`/api/clients?q=${encodeURIComponent(term)}`);
         const matches = Array.isArray(clients) ? clients : [];
-        const normalizedTerm = term.toLowerCase();
-        const normalizedPhone = term.replace(/\D/g, '');
-        const exactMatch = matches.find((client) => normalizePhone(client.phone) === normalizedPhone) || matches.find((client) => String(client.name || '').trim().toLowerCase() === normalizedTerm);
+        const normalizedTerm = normalizeClientSearch(term);
+        const normalizedPhone = normalizeClientPhone(term);
+        const exactMatch = matches.find((client) => normalizeClientPhone(client.phone) === normalizedPhone) || matches.find((client) => normalizeClientSearch(client.name) === normalizedTerm);
 
-        if (exactMatch) {
-          await fillOrderClientData(exactMatch, form);
+        if (exactMatch && form.dataset.orderClientManualOverride !== '1') {
+          await selectClientSuggestion(exactMatch);
           return;
         }
 
@@ -4258,30 +4430,53 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
     };
 
     const handleClientFieldInput = (inputValue) => {
+      const rawValue = String(inputValue || '');
+      const normalizedValue = normalizeClientSearch(rawValue);
+      const selectedClient = getSelectedClient();
+
+      if (!rawValue.trim()) {
+        form.dataset.orderClientManualOverride = '0';
+      } else if (selectedClient) {
+        const matchesSelectedName = normalizedValue && normalizeClientSearch(selectedClient.name) === normalizedValue;
+        const matchesSelectedPhone = normalizeClientPhone(rawValue) && normalizeClientPhone(selectedClient.phone) === normalizeClientPhone(rawValue);
+        if (!matchesSelectedName && !matchesSelectedPhone) {
+          form.dataset.orderClientManualOverride = '1';
+        }
+      }
+
       clearClientSelection();
       window.clearTimeout(clientLookupTimer);
-      clientLookupTimer = window.setTimeout(() => lookupClientMatches(inputValue), 300);
+      clientLookupTimer = window.setTimeout(() => lookupClientMatches(rawValue), 400);
+    };
+
+    const handleClientLookupKeydown = (event) => {
+      if (!clientLookupPanel || clientLookupPanel.style.display === 'none' || !currentClientSuggestions.length) return;
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActiveSuggestionIndex(activeSuggestionIndex < 0 ? 0 : activeSuggestionIndex + 1);
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActiveSuggestionIndex(activeSuggestionIndex < 0 ? currentClientSuggestions.length - 1 : activeSuggestionIndex - 1);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        const selected = currentClientSuggestions[activeSuggestionIndex] || currentClientSuggestions[0];
+        if (selected) selectClientSuggestion(selected);
+      } else if (event.key === 'Escape') {
+        clientLookupPanel.style.display = 'none';
+      }
     };
 
     if (nameInput) {
       nameInput.addEventListener('input', (event) => handleClientFieldInput(event.target.value));
       nameInput.addEventListener('blur', (event) => lookupClientMatches(event.target.value));
+      nameInput.addEventListener('keydown', handleClientLookupKeydown);
     }
 
     if (phoneInput) {
       phoneInput.addEventListener('input', (event) => handleClientFieldInput(event.target.value));
       phoneInput.addEventListener('blur', (event) => lookupClientMatches(event.target.value));
-    }
-
-    if (savedAddressSelect) {
-      savedAddressSelect.addEventListener('change', () => {
-        const addresses = form.__selectedClientAddresses || [];
-        const selectedAddress = addresses.find((address) => String(address.id) === String(savedAddressSelect.value));
-        if (selectedAddress) {
-          syncOrderClientAddress(form, selectedAddress);
-          if (selectedAddressField) selectedAddressField.value = String(selectedAddress.id);
-        }
-      });
+      phoneInput.addEventListener('keydown', handleClientLookupKeydown);
     }
 
     if (editingOrder) {
@@ -4516,13 +4711,7 @@ function attachOrderFormEvents(container = document, editingOrder = null) {
         return;
       }
 
-      const minimum = checkMinimumOrderAmount(orderData.total, 15000);
-      if (!minimum.meetsMinimum) {
-        form.classList.add('shake-form');
-        setTimeout(() => form.classList.remove('shake-form'), 500);
-        showToast(minimum.message, 'error');
-        return;
-      }
+      // Nota: Validación de monto mínimo eliminada (no bloquear creación de comanda)
       
       try {
         if (editingOrder) {
@@ -4867,6 +5056,24 @@ function resolveOrderShipping(order = {}, subtotal = 0) {
 }
 
 /**
+ * getOrderDisplayTotal - Calcula el total mostrado para una comanda
+ * Prioriza el cálculo desde items + envío para evitar discrepancias
+ */
+function getOrderDisplayTotal(order = {}) {
+  const items = Array.isArray(order.items) ? order.items : [];
+  const subtotal = items.reduce((sum, item) => {
+    const price = Number(item.unitPrice || item.unit_price || 0);
+    const qty = Number(item.quantity || 1);
+    return sum + (price * qty);
+  }, 0);
+  const shipping = resolveOrderShipping(order, subtotal);
+  const computed = calculateOrderTotal(items, shipping);
+  if (Number.isFinite(computed.total) && computed.total > 0) return computed.total;
+  // Fallback a la propiedad `order.total` si el cálculo no es posible
+  return Number(order.total) || 0;
+}
+
+/**
  * 5. generateOrderSummary - Genera resumen visual de comanda
  * @param {Object} order - Datos de la comanda
  * @returns {string} HTML del resumen
@@ -4910,24 +5117,7 @@ function generateOrderSummary(order) {
   `;
 }
 
-/**
- * 6. checkMinimumOrderAmount - Verifica monto mínimo de comanda
- * @param {number} total - Total de la comanda
- * @param {number} minimum - Monto mínimo permitido
- * @returns {Object} { meetsMinimum: boolean, required: number, missing: number }
- */
-function checkMinimumOrderAmount(total = 0, minimum = 15000) {
-  const meets = total >= minimum;
-  return {
-    meetsMinimum: meets,
-    required: minimum,
-    current: total,
-    missing: Math.max(0, minimum - total),
-    message: meets 
-      ? `✓ Cumple monto mínimo (${money(minimum)})`
-      : `Falta ${money(minimum - total)} para el monto mínimo`
-  };
-}
+// La validación de monto mínimo fue eliminada del flujo de creación de comandas.
 
 /**
  * 7. createNewOrder - Crea nueva comanda (frontend + API)
@@ -4948,11 +5138,7 @@ async function createNewOrder(orderData) {
       throw new Error('Algunos productos no están disponibles');
     }
     
-    // Verificar monto mínimo
-    const minimum = checkMinimumOrderAmount(orderData.total, 15000);
-    if (!minimum.meetsMinimum) {
-      throw new Error(minimum.message);
-    }
+    // Validación de monto mínimo eliminada: permitimos cualquier total
     
     // Enviar al servidor
     const result = await request('/api/orders', {

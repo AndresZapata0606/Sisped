@@ -28,7 +28,7 @@
     <div id="splashScreen" class="splash-screen" role="status" aria-live="polite">
       <div class="splash-card">
         <div class="splash-brand splash-logo">
-          <img class="splash-brand-logo" src="/assets/logo.png" alt="SISPED SW" onload="this.style.display='block'; this.parentNode.querySelector('.brand-mark-text').style.display='none';" onerror="this.style.display='none';" />
+          <img class="splash-brand-logo" src="/assets/logo.png" alt="SISPED SW" onload="this.style.display='block'; var label = this.parentNode && this.parentNode.querySelector('.brand-mark-text'); if (label) label.style.display='none';" onerror="this.style.display='none';" />
           <span class="brand-mark-text">SW</span>
         </div>
         <div class="splash-copy">
@@ -44,7 +44,7 @@
       <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
           <div class="brand-mark">
-            <img class="brand-logo" src="/assets/logo.png" alt="SISPED SW" onload="this.style.display='block'; this.parentNode.querySelector('.brand-mark-text').style.display='none';" onerror="this.style.display='none';" />
+            <img class="brand-logo" src="/assets/logo.png" alt="SISPED SW" onload="this.style.display='block'; var label = this.parentNode && this.parentNode.querySelector('.brand-mark-text'); if (label) label.style.display='none';" onerror="this.style.display='none';" />
             <span class="brand-mark-text">SW</span>
           </div>
           <div class="sidebar-brand-copy">
@@ -1114,7 +1114,7 @@
               </div>
               <div id="orderSavedAddressWrap" class="stack-form" style="display:none; margin-top: 12px;">
                 <label class="subtle" style="font-size: 11px; text-transform: uppercase; font-weight: 700; margin-bottom: 6px;">Direcciones guardadas</label>
-                <select id="orderSavedAddressSelect" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); padding: 10px; border-radius: 10px;"></select>
+                <div id="orderSavedAddressList" style="display:flex; flex-direction:column; gap: 8px;"></div>
               </div>
               <div class="mini-map-preview" style="height: 140px; margin-top: 16px; border-radius: 12px; border: 1px solid var(--panel-border); background: #07111f;"></div>
             </div>

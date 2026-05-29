@@ -19,26 +19,26 @@
 
   /* Typography */
   --font-family: Inter, Segoe UI, Arial, sans-serif;
-  --h1-size: 64px;
+  --h1-size: clamp(2.2rem, 3.2vw, 4rem);
   --h1-line-height: 0.95;
-  --section-title: 32px;
+  --section-title: clamp(1.6rem, 2vw, 2rem);
   --card-title: 15px;
   --body-size: 14px;
   --small-text: 12px;
 
   /* Layout */
-  --sidebar-width: 320px;
-  --content-padding: 28px;
-  --grid-gap: 18px;
-  --section-spacing: 24px;
+  --sidebar-width: 300px;
+  --content-padding: 24px;
+  --grid-gap: 16px;
+  --section-spacing: 20px;
 
   /* KPIs */
-  --kpi-height: 150px;
-  --kpi-card-radius: 20px;
-  --kpi-card-padding: 20px;
-  --kpi-avatar-size: 54px;
+  --kpi-height: 138px;
+  --kpi-card-radius: 18px;
+  --kpi-card-padding: 18px;
+  --kpi-avatar-size: 50px;
   --kpi-avatar-radius: 999px;
-  --kpi-value-size: 44px;
+  --kpi-value-size: 40px;
   --kpi-label-size: 15px;
 
   /* Table */
@@ -90,6 +90,7 @@
 
 body {
   margin: 0;
+  overflow-x: hidden;
   font-family: var(--font-family);
   background:
     radial-gradient(
@@ -488,6 +489,7 @@ body {
   font-weight: 900;
   letter-spacing: -0.02em;
   color: var(--text-primary);
+  max-width: 100%;
 }
 
 .topbar-chip {
@@ -503,13 +505,21 @@ body {
 }
 
 .icon-button {
-  display: none;
-  width: 46px;
-  height: 46px;
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
   justify-content: center;
   align-items: center;
-  font-size: 1.2rem;
+  font-size: 1.1rem;
   background: rgba(15, 23, 42, 0.82);
+  border-radius: 8px;
+  border: 1px solid rgba(148,163,184,0.06);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+}
+.icon-button:hover {
+  background: rgba(255,255,255,0.03);
 }
 
 .hero-panel {
@@ -520,6 +530,70 @@ body {
   display: grid;
   gap: 18px;
   width: 100%;
+}
+
+@media (max-width: 1320px) {
+  .app-shell {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    padding: 14px;
+    gap: 14px;
+  }
+
+  .sidebar-brand {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .sidebar-nav {
+    gap: 8px;
+  }
+
+  .nav-item {
+    padding: 12px;
+  }
+
+  .dashboard {
+    padding: 20px;
+  }
+
+  .topbar,
+  .view-header {
+    gap: 12px;
+  }
+
+  .topbar h1 {
+    font-size: clamp(1.9rem, 2.8vw, 3.2rem);
+  }
+
+  .top-kpis,
+  .operation-cards,
+  .orders-kpis,
+  .route-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .overview-grid,
+  .route-layout,
+  .hero-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .insight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .topbar-chip {
+    min-height: 38px;
+    padding: 8px 12px;
+  }
+
+  .operation-panel,
+  .insights-large .insight-card {
+    padding: 18px;
+  }
 }
 
 .view-panel {
@@ -1144,7 +1218,6 @@ body {
 }
 .orders-detail-panel .panel-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 12px;
 }
@@ -3194,6 +3267,87 @@ gm-place-autocomplete::part(input):focus {
   }
 }
 
+@media (max-width: 1120px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(84vw, 320px);
+    transform: translateX(-105%);
+    transition: transform 0.22s ease;
+    z-index: 30;
+    box-shadow: 24px 0 80px rgba(2, 6, 23, 0.5);
+  }
+
+  body.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  body.sidebar-open {
+    overflow: hidden;
+  }
+
+  .dashboard {
+    padding: 16px;
+  }
+
+  .icon-button {
+    display: inline-flex;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .topbar-meta-stack,
+  .route-header-aside {
+    width: 100%;
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .topbar-chip {
+    display: none;
+  }
+
+  .top-kpis,
+  .operation-cards,
+  .orders-kpis,
+  .route-summary-grid,
+  .insight-grid,
+  .hero-grid,
+  .overview-grid,
+  .route-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .view-header,
+  .route-controls,
+  .route-global-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .route-action-btn,
+  .route-controls button,
+  .route-controls select {
+    width: 100%;
+  }
+
+  .route-map {
+    min-height: 380px;
+  }
+
+  .view-panel.active-view {
+    gap: 14px;
+  }
+}
+
 @media (max-width: 840px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -3576,22 +3730,22 @@ gm-place-autocomplete::part(input):focus {
   display: grid !important;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 16px !important;
-  height: min(82vh, 860px);
+  height: auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .modal-content.order-modal-shell .order-modal-grid {
   grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr) !important;
   gap: 16px !important;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .modal-content.order-modal-shell .order-modal-left,
 .modal-content.order-modal-shell .order-modal-right {
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .modal-content.order-modal-shell .order-modal-left > .panel,
@@ -3608,7 +3762,7 @@ gm-place-autocomplete::part(input):focus {
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 16px;
   justify-content: stretch;
-  height: 100%;
+  height: auto;
   align-self: stretch;
 }
 
@@ -3910,6 +4064,41 @@ gm-place-autocomplete::part(input):focus {
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.12);
   color: var(--text-secondary);
+}
+
+/* Saved addresses list in order modal */
+.saved-address-item {
+  text-align: left;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255,255,255,0.03);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: all 140ms ease;
+  cursor: pointer;
+}
+.saved-address-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(2,6,23,0.12);
+  border-color: rgba(255,255,255,0.06);
+}
+.saved-address-item:focus {
+  outline: 2px solid rgba(59,130,246,0.18);
+  outline-offset: 2px;
+}
+.saved-address-item.is-selected {
+  background: linear-gradient(90deg, rgba(245,158,11,0.08), rgba(34,197,94,0.02));
+  border-color: rgba(245,158,11,0.22);
+  box-shadow: 0 12px 30px rgba(245,158,11,0.06);
+}
+
+.saved-address-item .subtle {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .client-card-chip.accent {

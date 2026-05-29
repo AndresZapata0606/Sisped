@@ -358,6 +358,20 @@ function normalizeAddressKey(row) {
     .join('|');
 }
 
+function normalizeAddressSignature(row) {
+  const rawAddress = String(row?.address || '').trim().toLowerCase();
+  const normalized = rawAddress
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .split(',')[0]
+    .replace(/\s*#\s*/g, ' #')
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return normalized;
+}
+
 function getClientById(db, clientId) {
   const client = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
   if (!client) return null;
@@ -403,10 +417,24 @@ function getClientAddressSnapshotForDb(db, clientId) {
     mergedAddresses.push(address);
   });
 
+  const primaryAddress = mergedAddresses.find((address) => Number(address.is_primary) === 1) || mergedAddresses[0] || null;
+  const visibleAddresses = primaryAddress
+    ? mergedAddresses.filter((address) => address.id === primaryAddress.id || normalizeAddressSignature(address) !== normalizeAddressSignature(primaryAddress))
+    : mergedAddresses;
+  const normalizedAddresses = primaryAddress
+    ? visibleAddresses.map((address) => ({
+      ...address,
+      is_primary: address.id === primaryAddress.id ? 1 : 0
+    }))
+    : visibleAddresses;
+  const normalizedPrimaryAddress = primaryAddress
+    ? { ...primaryAddress, is_primary: 1 }
+    : null;
+
   return {
-    addresses: mergedAddresses,
-    primaryAddress: mergedAddresses.find((address) => address.is_primary) || mergedAddresses[0] || null,
-    addressCount: mergedAddresses.length
+    addresses: normalizedAddresses,
+    primaryAddress: normalizedPrimaryAddress,
+    addressCount: normalizedAddresses.length
   };
 }
 
@@ -454,6 +482,19 @@ function backfillClientAddressesFromOrders(db) {
       db.prepare('UPDATE client_addresses SET is_primary = 1 WHERE id = ?').run(addressId);
     });
   })();
+}
+
+function normalizeLegacyAddressLabels(db) {
+  const result = db.prepare(`
+    UPDATE client_addresses
+    SET label = 'otra'
+    WHERE LOWER(TRIM(COALESCE(label, ''))) = 'principal'
+      AND COALESCE(is_primary, 0) = 0
+  `).run();
+
+  if ((result?.changes || 0) > 0) {
+    db.save();
+  }
 }
 
 function requestUrl(url, options = {}) {
@@ -524,14 +565,29 @@ async function startServer() {
       mergedAddresses.push(address);
     });
 
+    const primaryAddress = mergedAddresses.find((address) => Number(address.is_primary) === 1) || mergedAddresses[0] || null;
+    const visibleAddresses = primaryAddress
+      ? mergedAddresses.filter((address) => address.id === primaryAddress.id || normalizeAddressSignature(address) !== normalizeAddressSignature(primaryAddress))
+      : mergedAddresses;
+    const normalizedAddresses = primaryAddress
+      ? visibleAddresses.map((address) => ({
+        ...address,
+        is_primary: address.id === primaryAddress.id ? 1 : 0
+      }))
+      : visibleAddresses;
+    const normalizedPrimaryAddress = primaryAddress
+      ? { ...primaryAddress, is_primary: 1 }
+      : null;
+
     return {
-      addresses: mergedAddresses,
-      primaryAddress: mergedAddresses.find((address) => address.is_primary) || mergedAddresses[0] || null,
-      addressCount: mergedAddresses.length
+      addresses: normalizedAddresses,
+      primaryAddress: normalizedPrimaryAddress,
+      addressCount: normalizedAddresses.length
     };
   }
 
   backfillClientAddressesFromOrders(db);
+  normalizeLegacyAddressLabels(db);
 
   app.use(cors());
   app.use(express.json());
