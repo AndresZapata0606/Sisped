@@ -1,5 +1,8 @@
 const path = require('path');
 const { app, BrowserWindow } = require('electron');
+
+// Detectar modo de desarrollo explícitamente. Evita abrir DevTools en producción
+const isDev = process.env.NODE_ENV === 'development' || process.env.ELECTRON_DEV === '1';
 const { startServer } = require('../src/server/app');
 
 app.disableHardwareAcceleration();
@@ -21,7 +24,8 @@ async function createWindow() {
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      devTools: isDev
     }
   });
 
@@ -32,7 +36,7 @@ async function createWindow() {
   await win.loadURL(`http://127.0.0.1:${serverInfo.port}`);
   // Abrir DevTools automáticamente en entorno de desarrollo para facilitar debugging
   try {
-    if (process.env.NODE_ENV !== 'production') {
+    if (isDev) {
       win.webContents.openDevTools({ mode: 'undocked' });
     }
   } catch (e) { /* ignore if fails */ }
